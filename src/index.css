@@ -234,6 +234,23 @@ body {
   font-weight: 500;
 }
 
+.day-card.no-trades {
+  background: rgba(255, 255, 255, 0.02);
+  border-style: dashed;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 12px;
+}
+
+.day-card.no-trades .profit {
+  font-size: 20px;
+  color: rgba(247, 248, 252, 0.45);
+}
+
+.day-card.no-trades .details {
+  color: rgba(247, 248, 252, 0.45);
+}
+
 .weekly-panel {
   display: flex;
   flex-direction: column;
@@ -348,4 +365,22 @@ body {
   .day-card {
     min-height: 120px;
   }
+}
+
+.loading-state,
+.error-state {
+  background: var(--bg-panel);
+  border-radius: 20px;
+  border: 1px solid var(--border-color);
+  padding: 32px;
+  max-width: 360px;
+  margin: 120px auto 0;
+  text-align: center;
+  font-size: 15px;
+  color: var(--text-secondary);
+}
+
+.error-state {
+  color: var(--accent-red);
+  border-color: rgba(240, 85, 85, 0.35);
 }
