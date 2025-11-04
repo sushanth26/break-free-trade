@@ -32,6 +32,10 @@ body {
   padding: 48px 32px;
 }
 
+#root {
+  width: 100%;
+}
+
 .app-shell {
   width: min(1200px, 100%);
   display: flex;
