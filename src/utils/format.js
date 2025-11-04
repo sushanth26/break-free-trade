@@ -1,14 +1,12 @@
-export type Sentiment = 'positive' | 'negative' | 'neutral';
-
-const trimZeros = (value: number | string): string => {
+const trimZeros = (value) => {
   const numeric = typeof value === 'number' ? value : Number(value);
   return Number.isFinite(numeric) ? numeric.toString() : '0';
 };
 
-export const formatCurrency = (value: number): string => {
+export const formatCurrency = (value) => {
   const sign = value > 0 ? '+' : value < 0 ? '-' : '';
   const absValue = Math.abs(value);
-  let formatted: string;
+  let formatted;
 
   if (absValue >= 1000) {
     const compact = absValue / 1000;
@@ -25,17 +23,16 @@ export const formatCurrency = (value: number): string => {
   return sign ? `${sign}${formatted}` : formatted;
 };
 
-export const formatPercent = (value: number): string => {
+export const formatPercent = (value) => {
   const sign = value > 0 ? '+' : value < 0 ? '-' : '';
   const absValue = Math.abs(value);
   const formatted = trimZeros(absValue.toFixed(1));
   return `${sign}${formatted}%`;
 };
 
-export const pluralize = (word: string, count: number): string =>
-  count === 1 ? word : `${word}s`;
+export const pluralize = (word, count) => (count === 1 ? word : `${word}s`);
 
-export const sentimentClass = (value: number): Sentiment => {
+export const sentimentClass = (value) => {
   if (value > 0) {
     return 'positive';
   }

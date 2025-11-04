@@ -1,23 +1,26 @@
 # Break Free Trade
 
-This project is now a React application powered by Vite and TypeScript. It recreates the "Trade
-Journal Snapshot" experience with reusable components and strict linting.
+This project renders a static snapshot of a trading journal using plain browser APIs. The interface is
+styled with modern CSS and rendered without a framework so it can run entirely offline.
 
 ## Getting started
 
-Install dependencies and start the development server:
+No build tools or package downloads are required to view the project. Simply open `index.html` in a
+modern browser.
+
+If you want a distributable copy, run:
 
 ```bash
 npm install
-npm run dev
+npm run build
 ```
 
-Additional scripts:
+The build script creates a ready-to-serve `dist/` directory containing the HTML, CSS, and JavaScript
+modules.
 
-- `npm run build` – type-check the project and create an optimized production build.
-- `npm run preview` – preview the production build locally.
-- `npm run lint` – run ESLint with the configured TypeScript rules.
-- `npm run typecheck` – run the TypeScript compiler without emitting files.
+## Project structure
 
-The static trade data lives in `src/data/calendar.ts`, while UI utilities are in
-`src/utils/format.ts`.
+- `src/index.css` – global styles for the dashboard UI.
+- `src/main.js` – bootstraps the page and renders the dashboard markup.
+- `src/data/calendar.js` – static data set describing daily trading results.
+- `src/utils/format.js` – helper utilities for currency, percentages, and sentiment classes.

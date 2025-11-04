@@ -1,13 +1,4 @@
-export interface DayStats {
-  date: number;
-  profit: number;
-  trades: number;
-  winRate: number;
-}
-
-export type WeekStats = Array<DayStats | null>;
-
-const calendarData: WeekStats[] = [
+const calendarData = [
   [
     null,
     null,
