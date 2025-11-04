@@ -1,7 +1,8 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Trade Journal Snapshot</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -10,43 +11,9 @@
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <div class="app-shell">
-      <header class="top-bar">
-        <div class="month-controls">
-          <h1>October 2025</h1>
-          <button class="pill-button">
-            <span class="dot"></span>
-            This month
-          </button>
-        </div>
-        <div class="monthly-highlight">
-          <span class="label">Monthly stats</span>
-          <div class="stats">
-            <span class="net" id="monthly-net"></span>
-            <span class="divider">•</span>
-            <span class="days" id="monthly-days"></span>
-          </div>
-        </div>
-      </header>
-
-      <main class="layout">
-        <section class="calendar-panel">
-          <div class="calendar-header">
-            <span>Mon</span>
-            <span>Tue</span>
-            <span>Wed</span>
-            <span>Thu</span>
-            <span>Fri</span>
-          </div>
-          <div class="calendar-grid" id="calendar-grid"></div>
-        </section>
-        <aside class="weekly-panel" id="weekly-panel"></aside>
-      </main>
-    </div>
-
-    <script src="script.js"></script>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
