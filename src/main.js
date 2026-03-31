@@ -2,6 +2,8 @@ import { formatCurrency, formatPercent, pluralize, sentimentClass } from './util
 
 let appRoot = null;
 
+const WATCHLIST_STORAGE_KEY = 'insider-watchlist';
+
 const parseCsvLine = (line) => {
   const result = [];
   let current = '';
@@ -61,14 +63,35 @@ const parseCsv = (text) => {
   return records;
 };
 
+const createEl = (tag, className, text) => {
+  const element = document.createElement(tag);
+  if (className) {
+    element.className = className;
+  }
+  if (typeof text === 'string') {
+    element.textContent = text;
+  }
+  return element;
+};
+
 const parseDate = (value) => {
   if (!value) {
     return null;
   }
 
-  const parts = value.split('/');
+  const parts = value.split(/[-/]/);
   if (parts.length !== 3) {
     return null;
+  }
+
+  if (value.includes('-')) {
+    const [yearPart, monthPart, dayPart] = parts;
+    const year = Number.parseInt(yearPart, 10);
+    const month = Number.parseInt(monthPart, 10) - 1;
+    const day = Number.parseInt(dayPart, 10);
+    return Number.isFinite(year) && Number.isFinite(month) && Number.isFinite(day)
+      ? new Date(year, month, day)
+      : null;
   }
 
   const [monthPart, dayPart, yearPart] = parts;
@@ -83,15 +106,12 @@ const parseDate = (value) => {
   return new Date(year, month, day);
 };
 
-const formatIsoKey = (year, month, day) =>
-  `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-
-const parseAmount = (value) => {
+const parseNumber = (value) => {
   if (!value) {
     return 0;
   }
 
-  const cleaned = value.replace(/[$,]/g, '');
+  const cleaned = value.replace(/[$,%]/g, '').trim();
   const negative = cleaned.startsWith('(') && cleaned.endsWith(')');
   const numeric = Number.parseFloat(cleaned.replace(/[()]/g, ''));
 
@@ -102,289 +122,288 @@ const parseAmount = (value) => {
   return negative ? -numeric : numeric;
 };
 
-const aggregateDailyTrades = (records, month, year) => {
-  const dailyMap = new Map();
+const getRecordField = (record, options) => {
+  for (let index = 0; index < options.length; index += 1) {
+    const key = options[index];
+    if (record[key] !== undefined && record[key] !== '') {
+      return record[key];
+    }
+  }
+  return '';
+};
 
-  records.forEach((record) => {
-    const date = parseDate(record['Activity Date']);
-    if (!date || date.getFullYear() !== year || date.getMonth() !== month) {
+const normalizeInsiderRecords = (records) =>
+  records
+    .map((record) => {
+      const filingDateRaw = getRecordField(record, ['Filing Date', 'Date', 'Activity Date']);
+      const filingDate = parseDate(filingDateRaw);
+      const value = parseNumber(getRecordField(record, ['Value', 'Amount', 'Transaction Value']));
+      const shares = parseNumber(getRecordField(record, ['Shares', 'Quantity']));
+      const transactionType = getRecordField(record, ['Transaction Type', 'Action', 'Trans Code']).toUpperCase();
+      const ticker = getRecordField(record, ['Ticker', 'Instrument', 'Symbol']).toUpperCase();
+      const insider = getRecordField(record, ['Insider', 'Insider Name', 'Name']) || 'Unknown insider';
+      const role = getRecordField(record, ['Role', 'Relationship', 'Title']) || 'Not specified';
+      const form = getRecordField(record, ['Form', 'Form Type']) || 'Form 4';
+      const ownership = getRecordField(record, ['Ownership', 'Ownership Type']) || 'Direct';
+
+      if (!filingDate || !ticker) {
+        return null;
+      }
+
+      const isBuy = transactionType.includes('BUY') || transactionType === 'A';
+      const isSell = transactionType.includes('SELL') || transactionType === 'D';
+      const signedValue = isSell ? -Math.abs(value) : Math.abs(value);
+
+      return {
+        filingDate,
+        filingDateRaw,
+        ticker,
+        insider,
+        role,
+        transactionType,
+        shares,
+        value: Math.abs(value),
+        signedValue,
+        ownership,
+        form,
+        isBuy,
+        isSell,
+      };
+    })
+    .filter(Boolean);
+
+const formatIsoKey = (year, month, day) =>
+  `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+
+const buildCalendarData = (records, filterMode) => {
+  const filtered =
+    filterMode === 'all' ? records : records.filter((record) => (filterMode === 'buy' ? record.isBuy : record.isSell));
+
+  if (filtered.length === 0) {
+    throw new Error('No records found for selected filter.');
+  }
+
+  const dates = filtered.map((record) => record.filingDate).sort((a, b) => a - b);
+  const month = dates[0].getMonth();
+  const year = dates[0].getFullYear();
+
+  const dailyMap = new Map();
+  filtered.forEach((record) => {
+    if (record.filingDate.getMonth() !== month || record.filingDate.getFullYear() !== year) {
       return;
     }
 
-    const amount = parseAmount(record.Amount);
-    const key = formatIsoKey(year, month, date.getDate());
-    const aggregate =
-      dailyMap.get(key) ?? { total: 0, trades: 0, wins: 0, records: [] };
+    const day = record.filingDate.getDate();
+    const key = formatIsoKey(year, month, day);
+    const aggregate = dailyMap.get(key) ?? {
+      date: day,
+      signal: 0,
+      filings: 0,
+      buys: 0,
+      sells: 0,
+      records: [],
+    };
 
-    aggregate.total += amount;
-    aggregate.trades += 1;
-    if (amount > 0) {
-      aggregate.wins += 1;
+    aggregate.signal += record.signedValue;
+    aggregate.filings += 1;
+    if (record.isBuy) {
+      aggregate.buys += 1;
     }
-    aggregate.records.push({ ...record, parsedAmount: amount });
-
+    if (record.isSell) {
+      aggregate.sells += 1;
+    }
+    aggregate.records.push(record);
     dailyMap.set(key, aggregate);
   });
 
-  return dailyMap;
-};
-
-const createCalendarMatrix = (dailyMap, month, year) => {
   const daysInMonth = new Date(year, month + 1, 0).getDate();
-
-  let firstWeekday = null;
-  let firstWeekdayIndex = 0;
+  const weeks = [];
+  let currentWeek = new Array(5).fill(null);
+  let weekIndex = 0;
 
   for (let day = 1; day <= daysInMonth; day += 1) {
     const date = new Date(year, month, day);
     const dayOfWeek = date.getDay();
 
-    if (dayOfWeek >= 1 && dayOfWeek <= 5) {
-      firstWeekday = day;
-      firstWeekdayIndex = dayOfWeek - 1;
-      break;
+    if (dayOfWeek === 0 || dayOfWeek === 6) {
+      continue;
     }
-  }
 
-  if (!firstWeekday) {
-    return [];
-  }
-
-  const weeks = [];
-  let currentWeek = new Array(5).fill(null);
-  let weekIndex = firstWeekdayIndex;
-
-  for (let index = 0; index < firstWeekdayIndex; index += 1) {
-    currentWeek[index] = null;
-  }
-
-  let day = firstWeekday;
-  while (day <= daysInMonth) {
-    const date = new Date(year, month, day);
     const key = formatIsoKey(year, month, day);
     const aggregate = dailyMap.get(key);
 
     currentWeek[weekIndex] = aggregate
-      ? {
-          date: day,
-          profit: aggregate.total,
-          trades: aggregate.trades,
-          winRate: aggregate.trades ? (aggregate.wins / aggregate.trades) * 100 : 0,
-          hasTrades: true,
-          records: aggregate.records,
-        }
+      ? { ...aggregate, hasFilings: true }
       : {
           date: day,
-          profit: 0,
-          trades: 0,
-          winRate: 0,
-          hasTrades: false,
+          signal: 0,
+          filings: 0,
+          buys: 0,
+          sells: 0,
+          hasFilings: false,
           records: [],
         };
 
     weekIndex += 1;
-
     if (weekIndex === 5) {
       weeks.push(currentWeek);
       currentWeek = new Array(5).fill(null);
       weekIndex = 0;
     }
-
-    day += 1;
-
-    while (day <= daysInMonth) {
-      const dayOfWeek = new Date(year, month, day).getDay();
-      if (dayOfWeek === 0 || dayOfWeek === 6) {
-        day += 1;
-        continue;
-      }
-      break;
-    }
   }
 
-  if (weekIndex > 0 || currentWeek.some((cell) => cell !== null)) {
+  if (currentWeek.some((cell) => cell !== null)) {
     weeks.push(currentWeek);
   }
 
-  return weeks;
+  const monthLabel = new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric' }).format(new Date(year, month, 1));
+
+  return { monthLabel, month, year, calendarData: weeks, visibleRecords: filtered };
 };
 
-const formatMonthLabel = (month, year) =>
-  new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric' }).format(new Date(year, month, 1));
+const flattenDays = (data) => data.flat().filter((day) => day && day.hasFilings);
 
-const buildCalendarData = (records) => {
-  const tradeDates = records
-    .map((record) => parseDate(record['Activity Date']))
-    .filter((date) => date instanceof Date && !Number.isNaN(date.getTime()))
-    .sort((a, b) => a - b);
-
-  if (tradeDates.length === 0) {
-    throw new Error('No valid trade dates found in CSV.');
-  }
-
-  const month = tradeDates[0].getMonth();
-  const year = tradeDates[0].getFullYear();
-  const dailyMap = aggregateDailyTrades(records, month, year);
-  const calendarData = createCalendarMatrix(dailyMap, month, year);
+const computeDashboardStats = (calendarData, records) => {
+  const activeDays = flattenDays(calendarData);
+  const netSignal = activeDays.reduce((sum, day) => sum + day.signal, 0);
+  const totalFilings = records.length;
+  const totalBuyValue = records.filter((record) => record.isBuy).reduce((sum, record) => sum + record.value, 0);
+  const totalSellValue = records.filter((record) => record.isSell).reduce((sum, record) => sum + record.value, 0);
 
   return {
-    calendarData,
-    monthLabel: formatMonthLabel(month, year),
-    month,
-    year,
+    netSignal,
+    activeDays: activeDays.length,
+    totalFilings,
+    totalBuyValue,
+    totalSellValue,
   };
 };
 
-const fetchTradeRecords = async () => {
-  const response = await fetch('./trades.csv', { cache: 'no-store' });
+const saveWatchlist = (tickers) => localStorage.setItem(WATCHLIST_STORAGE_KEY, JSON.stringify(tickers));
 
-  if (!response.ok) {
-    throw new Error(`Failed to fetch trade data: ${response.status}`);
+const readWatchlist = () => {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(WATCHLIST_STORAGE_KEY) || '[]');
+    return Array.isArray(parsed) ? parsed.filter(Boolean) : [];
+  } catch {
+    return [];
   }
-
-  const text = await response.text();
-  const records = parseCsv(text);
-
-  if (records.length === 0) {
-    throw new Error('Trade CSV is empty.');
-  }
-
-  return records;
 };
 
-const createEl = (tag, className, text) => {
-  const element = document.createElement(tag);
-  if (className) {
-    element.className = className;
+const evaluateAlerts = (records, watchlist) => {
+  const LARGE_VALUE_THRESHOLD = 500000;
+  const alerts = [];
+
+  const largeTrades = records.filter((record) => record.value >= LARGE_VALUE_THRESHOLD);
+  if (largeTrades.length > 0) {
+    alerts.push(`${largeTrades.length} large filing${largeTrades.length === 1 ? '' : 's'} above $500K detected.`);
   }
-  if (typeof text === 'string') {
-    element.textContent = text;
+
+  const watchlistHits = records.filter((record) => watchlist.includes(record.ticker));
+  if (watchlistHits.length > 0) {
+    alerts.push(`Watchlist activity on ${new Set(watchlistHits.map((record) => record.ticker)).size} ticker(s).`);
   }
-  return element;
+
+  const clusterBuys = new Map();
+  records.filter((record) => record.isBuy).forEach((record) => {
+    const count = clusterBuys.get(record.ticker) ?? new Set();
+    count.add(record.insider);
+    clusterBuys.set(record.ticker, count);
+  });
+
+  clusterBuys.forEach((insiders, ticker) => {
+    if (insiders.size >= 2) {
+      alerts.push(`Cluster buying signal for ${ticker}: ${insiders.size} insiders bought.`);
+    }
+  });
+
+  return alerts;
 };
 
-const flattenDays = (data) => data.flat().filter((day) => day && day.hasTrades);
-
-const computeMonthlyStats = (data) => {
-  const days = flattenDays(data);
-  const monthlyNet = days.reduce((sum, day) => sum + day.profit, 0);
-  const monthlyDays = days.length;
-  const avgDaily = monthlyNet / (monthlyDays || 1);
-
-  return { monthlyNet, monthlyDays, avgDaily };
-};
-
-const renderMonthlyHeader = (stats, monthLabel, onUpload) => {
+const renderHeader = (stats, monthLabel, currentFilter, onFilterChange, onUpload) => {
   const header = createEl('header', 'top-bar');
+  const controls = createEl('div', 'month-controls');
+  controls.append(createEl('h1', null, `${monthLabel} Insider Tracker`));
 
-  const monthControls = createEl('div', 'month-controls');
-  const title = createEl('h1', null, monthLabel);
-  const button = createEl('button', 'pill-button');
-  button.type = 'button';
+  const filterGroup = createEl('div', 'filter-group');
+  ['all', 'buy', 'sell'].forEach((value) => {
+    const button = createEl('button', `pill-button ${currentFilter === value ? 'active' : ''}`, value.toUpperCase());
+    button.type = 'button';
+    button.addEventListener('click', () => onFilterChange(value));
+    filterGroup.append(button);
+  });
 
-  const dot = createEl('span', 'dot');
-  const label = document.createTextNode('This month');
-  button.append(dot, label);
-  monthControls.append(title, button);
+  const uploadLabel = createEl('label', 'upload-button', 'Upload insider CSV');
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.csv';
+  input.addEventListener('change', (event) => {
+    const [file] = event.target.files;
+    if (file) {
+      onUpload(file);
+    }
+    event.target.value = '';
+  });
+  uploadLabel.append(input);
 
-  if (typeof onUpload === 'function') {
-    const uploadLabel = createEl('label', 'upload-button');
-    uploadLabel.textContent = 'Upload CSV';
+  controls.append(filterGroup, uploadLabel);
 
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.csv';
-    input.addEventListener('change', (event) => {
-      const [file] = event.target.files;
-      if (file) {
-        onUpload(file);
-      }
-      event.target.value = '';
-    });
-
-    uploadLabel.append(input);
-    monthControls.append(uploadLabel);
-  }
-
-  const monthlyHighlight = createEl('div', 'monthly-highlight');
-  const labelEl = createEl('span', 'label', 'Monthly stats');
-  const statsContainer = createEl('div', 'stats');
-  const net = createEl('span', `net ${sentimentClass(stats.monthlyNet)}`, formatCurrency(stats.monthlyNet));
-  net.id = 'monthly-net';
-  const divider = createEl('span', 'divider', '•');
-  const days = createEl(
-    'span',
-    'days',
-    `${stats.monthlyDays} ${pluralize('day', stats.monthlyDays)}`,
+  const highlight = createEl('div', 'monthly-highlight');
+  highlight.append(
+    createEl('span', 'label', 'Signal snapshot'),
+    createEl('div', 'stats', ''),
   );
-  days.id = 'monthly-days';
 
-  statsContainer.append(net, divider, days);
-  monthlyHighlight.append(labelEl, statsContainer);
+  const statsRow = highlight.querySelector('.stats');
+  statsRow.append(
+    createEl('span', `net ${sentimentClass(stats.netSignal)}`, formatCurrency(stats.netSignal)),
+    createEl('span', 'divider', '•'),
+    createEl('span', 'days', `${stats.totalFilings} ${pluralize('filing', stats.totalFilings)}`),
+  );
 
-  header.append(monthControls, monthlyHighlight);
+  header.append(controls, highlight);
   return header;
 };
 
-const renderCalendarPanel = (data, onDaySelect) => {
+const renderCalendarPanel = (calendarData, onDaySelect) => {
   const panel = createEl('section', 'calendar-panel');
   const header = createEl('div', 'calendar-header');
-  ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'].forEach((dayLabel) => {
-    header.append(createEl('span', null, dayLabel));
-  });
+  ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'].forEach((dayLabel) => header.append(createEl('span', null, dayLabel)));
 
   const grid = createEl('div', 'calendar-grid');
   let selectedCard = null;
-  const selectCard = (card, day) => {
-    if (selectedCard === card) {
-      return;
-    }
 
+  const selectCard = (card, day) => {
     if (selectedCard) {
       selectedCard.classList.remove('selected');
-      selectedCard.setAttribute('aria-pressed', 'false');
     }
-
     selectedCard = card;
     selectedCard.classList.add('selected');
-    selectedCard.setAttribute('aria-pressed', 'true');
-    if (typeof onDaySelect === 'function') {
-      onDaySelect(day);
-    }
+    onDaySelect(day);
   };
 
-  let initialSelection = null;
+  let firstSelectable = null;
 
-  data.forEach((week) => {
+  calendarData.forEach((week) => {
     week.forEach((day) => {
       if (!day) {
-        const empty = createEl('div', 'day-card empty', 'No data');
-        grid.append(empty);
+        grid.append(createEl('div', 'day-card empty', 'No data'));
         return;
       }
 
-      const classes = ['day-card'];
-      if (day.hasTrades) {
-        classes.push(sentimentClass(day.profit));
-      } else {
-        classes.push('neutral', 'no-trades');
-      }
-
+      const classes = ['day-card', day.hasFilings ? sentimentClass(day.signal) : 'neutral', day.hasFilings ? 'interactive' : 'no-trades'];
       const card = createEl('div', classes.join(' '));
       const date = createEl('div', 'date', String(day.date));
-      const profit = createEl('div', 'profit', day.hasTrades ? formatCurrency(day.profit) : '—');
+      const signal = createEl('div', 'profit', day.hasFilings ? formatCurrency(day.signal) : '—');
       const details = createEl('div', 'details');
+      details.textContent = day.hasFilings
+        ? `${day.filings} filings • ${day.buys} buys / ${day.sells} sells`
+        : 'No filings';
 
-      if (day.hasTrades) {
-        card.classList.add('interactive');
-        const trades = createEl('span', null, `${day.trades} ${pluralize('trade', day.trades)}`);
-        const winRate = createEl('span', null, `${formatPercent(day.winRate)} win rate`);
-        details.append(trades, winRate);
+      card.append(date, signal, details);
 
+      if (day.hasFilings) {
         card.tabIndex = 0;
-        card.setAttribute('role', 'button');
-        card.setAttribute('aria-pressed', 'false');
-        card.setAttribute('aria-label', `View trades for day ${day.date}`);
         card.addEventListener('click', () => selectCard(card, day));
         card.addEventListener('keydown', (event) => {
           if (event.key === 'Enter' || event.key === ' ') {
@@ -392,196 +411,188 @@ const renderCalendarPanel = (data, onDaySelect) => {
             selectCard(card, day);
           }
         });
-
-        if (!initialSelection) {
-          initialSelection = { card, day };
+        if (!firstSelectable) {
+          firstSelectable = { card, day };
         }
-      } else {
-        details.textContent = 'No trades recorded';
       }
 
-      card.append(date, profit, details);
       grid.append(card);
     });
   });
 
-  if (initialSelection) {
-    selectCard(initialSelection.card, initialSelection.day);
+  if (firstSelectable) {
+    selectCard(firstSelectable.card, firstSelectable.day);
   }
 
   panel.append(header, grid);
   return panel;
 };
 
-const renderWeeklyPanel = (data, stats) => {
+const renderSidebar = (calendarData, stats, records, watchlist, onWatchlistUpdate) => {
   const panel = createEl('aside', 'weekly-panel');
 
-  const summary = createEl('div', `weekly-summary ${sentimentClass(stats.monthlyNet)}`);
+  const summary = createEl('div', `weekly-summary ${sentimentClass(stats.netSignal)}`);
   summary.append(
-    createEl('span', 'title', 'Monthly net'),
-    createEl('span', 'value', formatCurrency(stats.monthlyNet)),
-    createEl(
-      'span',
-      'meta',
-      `${stats.monthlyDays} active ${pluralize('day', stats.monthlyDays)} • Avg ${formatCurrency(stats.avgDaily)}`,
-    ),
+    createEl('span', 'title', 'Net insider signal'),
+    createEl('span', 'value', formatCurrency(stats.netSignal)),
+    createEl('span', 'meta', `${stats.activeDays} active days • Buy ${formatCurrency(stats.totalBuyValue)} / Sell ${formatCurrency(stats.totalSellValue)}`),
   );
-
   panel.append(summary);
 
-  data.forEach((week, index) => {
-    const trades = week.filter((day) => day && day.hasTrades);
-    const weekDays = trades.length;
-    const weekNet = trades.reduce((sum, day) => sum + day.profit, 0);
-    const weekCard = createEl('div', `week-card ${sentimentClass(weekNet)}`);
-    const meta = createEl('div', 'meta');
-    meta.append(
-      createEl('span', null, `Week ${index + 1}`),
-      createEl('span', null, `${weekDays} ${pluralize('day', weekDays)}`),
+  const watchlistCard = createEl('div', 'week-card neutral');
+  watchlistCard.append(createEl('div', 'meta', 'Watchlist'));
+  const input = document.createElement('input');
+  input.className = 'watchlist-input';
+  input.placeholder = 'e.g. NVDA, TSLA, AAPL';
+  input.value = watchlist.join(', ');
+  input.addEventListener('change', () => {
+    const tickers = input.value
+      .split(',')
+      .map((ticker) => ticker.trim().toUpperCase())
+      .filter(Boolean);
+    saveWatchlist(tickers);
+    onWatchlistUpdate(tickers);
+  });
+  watchlistCard.append(input);
+  panel.append(watchlistCard);
+
+  const alerts = evaluateAlerts(records, watchlist);
+  const alertCard = createEl('div', 'week-card neutral');
+  alertCard.append(createEl('div', 'meta', `Alerts (${alerts.length})`));
+  if (alerts.length === 0) {
+    alertCard.append(createEl('div', 'value', 'No active alerts'));
+  } else {
+    const list = createEl('ul', 'alert-list');
+    alerts.forEach((alert) => list.append(createEl('li', null, alert)));
+    alertCard.append(list);
+  }
+  panel.append(alertCard);
+
+  calendarData.forEach((week, index) => {
+    const filings = week.filter((day) => day && day.hasFilings);
+    const weekSignal = filings.reduce((sum, day) => sum + day.signal, 0);
+    const weekCard = createEl('div', `week-card ${sentimentClass(weekSignal)}`);
+    weekCard.append(
+      createEl('div', 'meta', `Week ${index + 1} • ${filings.length} filing days`),
+      createEl('div', 'value', formatCurrency(weekSignal)),
     );
-    weekCard.append(meta, createEl('div', 'value', formatCurrency(weekNet)));
     panel.append(weekCard);
   });
 
   return panel;
 };
 
-const renderTradeDetailPanel = () => {
+const renderDetailPanel = () => {
   const panel = createEl('section', 'trade-detail-panel');
-  panel.append(
-    createEl('div', 'trade-detail-placeholder', 'Select a trading day to view individual trades.'),
-  );
+  panel.append(createEl('div', 'trade-detail-placeholder', 'Select a day to inspect SEC insider filings.'));
   return panel;
 };
 
 const formatDayLabel = (day, month, year) =>
-  new Intl.DateTimeFormat('en-US', {
-    month: 'long',
-    day: 'numeric',
-    year: 'numeric',
-  }).format(new Date(year, month, day));
+  new Intl.DateTimeFormat('en-US', { month: 'long', day: 'numeric', year: 'numeric' }).format(new Date(year, month, day));
 
-const createTradeItem = (record) => {
+const renderRecordItem = (record) => {
   const item = createEl('article', 'trade-item');
   const header = createEl('div', 'trade-item-header');
   header.append(
-    createEl('span', 'trade-instrument', record.Instrument || '—'),
-    createEl('span', `trade-amount ${sentimentClass(record.parsedAmount)}`, formatCurrency(record.parsedAmount)),
+    createEl('span', 'trade-instrument', `${record.ticker} • ${record.insider}`),
+    createEl('span', `trade-amount ${sentimentClass(record.signedValue)}`, formatCurrency(record.signedValue)),
   );
 
-  const description = createEl('div', 'trade-item-description', record.Description || '—');
-  const metaParts = [];
-  if (record['Trans Code']) {
-    metaParts.push(record['Trans Code']);
-  }
-  if (record.Quantity) {
-    metaParts.push(`Qty ${record.Quantity}`);
-  }
-  if (record.Price) {
-    metaParts.push(`@ ${record.Price}`);
-  }
-
-  const meta = createEl('div', 'trade-item-meta');
-  meta.textContent = metaParts.join(' • ');
-
-  item.append(header, description);
-  if (metaParts.length > 0) {
-    item.append(meta);
-  }
+  const description = createEl('div', 'trade-item-description', `${record.transactionType} • ${record.role} • ${record.form}`);
+  const meta = createEl('div', 'trade-item-meta', `${record.shares.toLocaleString()} shares • ${record.ownership} ownership`);
+  item.append(header, description, meta);
   return item;
 };
 
-const updateTradeDetailPanel = (panel, day, month, year) => {
-  if (!panel) {
-    return;
-  }
-
+const updateDetailPanel = (panel, day, month, year) => {
   panel.innerHTML = '';
 
-  if (!day || !day.hasTrades) {
-    panel.append(
-      createEl('div', 'trade-detail-placeholder', 'No trades recorded for the selected day.'),
-    );
+  if (!day || !day.hasFilings) {
+    panel.append(createEl('div', 'trade-detail-placeholder', 'No filings for this date.'));
     return;
   }
 
-  const title = createEl('h2', 'trade-detail-title', `Trades for ${formatDayLabel(day.date, month, year)}`);
+  const title = createEl('h2', 'trade-detail-title', `Insider filings for ${formatDayLabel(day.date, month, year)}`);
   const summary = createEl('div', 'trade-detail-summary');
+  const buyRate = day.filings ? (day.buys / day.filings) * 100 : 0;
+
   summary.append(
-    createEl('span', `summary-profit ${sentimentClass(day.profit)}`, formatCurrency(day.profit)),
-    createEl('span', 'summary-meta', `${day.trades} ${pluralize('trade', day.trades)} • ${formatPercent(day.winRate)} win rate`),
+    createEl('span', `summary-profit ${sentimentClass(day.signal)}`, formatCurrency(day.signal)),
+    createEl('span', 'summary-meta', `${day.filings} filings • ${day.buys} buys • ${day.sells} sells • ${formatPercent(buyRate)} buy-rate`),
   );
 
   const list = createEl('div', 'trade-list');
-  day.records.forEach((record) => {
-    list.append(createTradeItem(record));
-  });
+  day.records.forEach((record) => list.append(renderRecordItem(record)));
 
   panel.append(title, summary, list);
 };
 
-const buildAppShell = (calendarInfo, onUpload) => {
-  const { calendarData, monthLabel, month, year } = calendarInfo;
-  const appShell = createEl('div', 'app-shell');
-  const stats = computeMonthlyStats(calendarData);
-  const detailPanel = renderTradeDetailPanel();
-
-  const handleDaySelect = (day) => {
-    updateTradeDetailPanel(detailPanel, day, month, year);
-  };
-
-  const header = renderMonthlyHeader(stats, monthLabel, onUpload);
-  const layout = createEl('main', 'layout');
-  layout.append(
-    renderCalendarPanel(calendarData, handleDaySelect),
-    renderWeeklyPanel(calendarData, stats),
-  );
-  appShell.append(header, layout, detailPanel);
-  return appShell;
-};
-
-const renderApplication = (records) => {
-  if (!appRoot) {
-    return;
-  }
-
-  const calendarInfo = buildCalendarData(records);
-  appRoot.innerHTML = '';
-  appRoot.append(buildAppShell(calendarInfo, handleFileUpload));
-};
-
-const showUploadError = (message) => {
+const showError = (message) => {
   if (!appRoot) {
     return;
   }
 
   appRoot.querySelectorAll('.upload-feedback').forEach((node) => node.remove());
-  const banner = createEl('div', 'upload-feedback error', message);
-  appRoot.prepend(banner);
-  setTimeout(() => {
-    banner.remove();
-  }, 6000);
+  appRoot.prepend(createEl('div', 'upload-feedback error', message));
 };
 
-const handleFileUpload = async (file) => {
-  if (!file) {
+const fetchTradeRecords = async () => {
+  const response = await fetch('./trades.csv', { cache: 'no-store' });
+  if (!response.ok) {
+    throw new Error(`Failed to fetch data: ${response.status}`);
+  }
+  return parseCsv(await response.text());
+};
+
+const state = {
+  rawRecords: [],
+  normalizedRecords: [],
+  filter: 'all',
+  watchlist: readWatchlist(),
+};
+
+const renderApp = () => {
+  if (!appRoot) {
     return;
   }
 
-  try {
-    const text = await file.text();
-    const records = parseCsv(text);
+  const calendarInfo = buildCalendarData(state.normalizedRecords, state.filter);
+  const stats = computeDashboardStats(calendarInfo.calendarData, calendarInfo.visibleRecords);
+  const detailPanel = renderDetailPanel();
 
-    if (records.length === 0) {
-      throw new Error('Uploaded CSV is empty.');
+  const rerenderWithFilter = (filter) => {
+    state.filter = filter;
+    renderApp();
+  };
+
+  const header = renderHeader(stats, calendarInfo.monthLabel, state.filter, rerenderWithFilter, async (file) => {
+    try {
+      const uploaded = parseCsv(await file.text());
+      const normalized = normalizeInsiderRecords(uploaded);
+      if (normalized.length === 0) {
+        throw new Error('Uploaded CSV has no valid insider filing rows.');
+      }
+      state.rawRecords = uploaded;
+      state.normalizedRecords = normalized;
+      renderApp();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      showError(`Unable to load uploaded file: ${message}`);
     }
+  });
 
-    renderApplication(records);
-  } catch (error) {
-    console.error(error);
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    showUploadError(`Unable to process uploaded file: ${message}`);
-  }
+  const layout = createEl('main', 'layout');
+  layout.append(
+    renderCalendarPanel(calendarInfo.calendarData, (day) => updateDetailPanel(detailPanel, day, calendarInfo.month, calendarInfo.year)),
+    renderSidebar(calendarInfo.calendarData, stats, calendarInfo.visibleRecords, state.watchlist, (watchlist) => {
+      state.watchlist = watchlist;
+      renderApp();
+    }),
+  );
+
+  appRoot.innerHTML = '';
+  appRoot.append(header, layout, detailPanel);
 };
 
 const initialize = async () => {
@@ -591,16 +602,21 @@ const initialize = async () => {
   }
 
   appRoot.innerHTML = '';
-  appRoot.append(createEl('div', 'loading-state', 'Loading trade data…'));
+  appRoot.append(createEl('div', 'loading-state', 'Loading insider filings…'));
 
   try {
-    const records = await fetchTradeRecords();
-    renderApplication(records);
+    state.rawRecords = await fetchTradeRecords();
+    state.normalizedRecords = normalizeInsiderRecords(state.rawRecords);
+
+    if (state.normalizedRecords.length === 0) {
+      throw new Error('No valid insider records found in CSV.');
+    }
+
+    renderApp();
   } catch (error) {
-    console.error(error);
     const message = error instanceof Error ? error.message : 'Unknown error';
     appRoot.innerHTML = '';
-    appRoot.append(createEl('div', 'error-state', `Unable to load trade data: ${message}`));
+    appRoot.append(createEl('div', 'error-state', `Unable to load insider data: ${message}`));
   }
 };
 
