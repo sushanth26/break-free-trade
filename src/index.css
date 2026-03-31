@@ -543,3 +543,33 @@ body {
   color: var(--accent-red);
   border-color: rgba(240, 85, 85, 0.35);
 }
+
+.filter-group {
+  display: inline-flex;
+  gap: 8px;
+}
+
+.pill-button.active {
+  background: rgba(255, 255, 255, 0.2);
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+.watchlist-input {
+  width: 100%;
+  margin-top: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  padding: 10px 12px;
+  color: var(--text-primary);
+}
+
+.alert-list {
+  margin-top: 8px;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
