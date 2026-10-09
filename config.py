@@ -85,8 +85,12 @@ ZONE_GRID_TIMEFRAME_COMBOS = (
 # Zone score shown on charts = w_s * strength - w_b * break risk
 ZONE_W_STRENGTH = 1.0
 ZONE_W_BREAK = 1.0
-ZONE_SCORE_STRONG = 80
-ZONE_SCORE_MEDIUM = 50
+ZONE_SCORE_STRONG = 80             # score = percentile of train raw quality: 80+ = top 20% of zones
+ZONE_SCORE_MEDIUM = 50             # under 50 = bottom half
+ZONE_SCORE_QUANTILES = 101         # train raw-score quantiles stored with the weights (0..100th)
+ZONE_GATE_VALID_START = "2026-05-01"  # Day 3 gate: fit weights before this, check bands from here to TRAIN_END
+ZONE_GATE_MIN_TOUCHES = 30         # each band needs this many validation touches to count
+ZONE_GATE_MIN_EDGE = 0.10          # 80+ must hold >= 10 points more than <50 ("far more"; random data gave ~8)
 
 # Touch outcome label (Backtest 1): held = moved HOLD_MOVE_ATR away before breaking by BREAK_ATR
 HOLD_MOVE_ATR = 0.5
