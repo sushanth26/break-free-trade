@@ -26,7 +26,11 @@ class AlpacaProvider(BarProvider):
             api_key or os.environ["ALPACA_API_KEY"], secret_key or os.environ["ALPACA_SECRET_KEY"])
         self.feed = feed
 
-    def get_bars(self, symbol, tf, start=None, end=None):
+    def get_bars(self, symbol, tf, start=None, end=None, count: int | None = None):
+        """``count`` = only the latest bars (live polling); otherwise start..end (default 12 months)."""
+        if count is not None and start is None:
+            start = pd.Timestamp.now(tz=config.TZ) - pd.Timedelta(days=4)
+            return self.get_bars(symbol, tf, start, end).iloc[-count:]
         from alpaca.data.enums import Adjustment, DataFeed
         from alpaca.data.requests import StockBarsRequest
         from alpaca.data.timeframe import TimeFrame, TimeFrameUnit

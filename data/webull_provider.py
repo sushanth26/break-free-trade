@@ -96,9 +96,9 @@ class WebullProvider(BarProvider):
         self.stamps_bar_end = stamps_bar_end
         self.sessions = SESSIONS[session]
 
-    def get_bars(self, symbol, tf, start=None, end=None):
+    def get_bars(self, symbol, tf, start=None, end=None, count: int = config.WEBULL_MAX_BARS):
         res = self.market_data.get_batch_history_bar(
-            [symbol.upper()], "US_STOCK", _TIMESPAN[tf], count=str(config.WEBULL_MAX_BARS),
+            [symbol.upper()], "US_STOCK", _TIMESPAN[tf], count=str(count),
             trading_sessions=self.sessions)
         status = getattr(res, "status_code", 200)
         if status == 403:

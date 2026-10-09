@@ -190,5 +190,14 @@ TIME_FILTER = None                  # e.g. ("09:45", "15:00") to restrict entrie
 
 # ---------------------------------------------------------------- AI layer
 AI_PROMPTS_DIR = "ai/prompts"
-AI_NEWS_MODEL = CLAUDE_MODEL
-AI_MAX_TOKENS = 600
+AI_MAX_TOKENS = 2000               # includes thinking; responses are short JSON
+AI_EFFORT = "low"                  # fast, focused judgments inside the 10 s budget
+AI_PRICE_IN_PER_MTOK = 2.0         # claude-sonnet-5-5 list prices, for the cost log
+AI_PRICE_OUT_PER_MTOK = 10.0
+AI_PRICE_TOLERANCE = 0.011         # an AI price must match an allowed level within 1 cent
+
+# ---------------------------------------------------------------- live runtime
+LIVE_HISTORY_SESSIONS = 25         # sessions of 5m bars kept in memory (RVOL needs 20)
+POLL_DELAY_S = 2                   # poll this long after each 5m boundary
+SCHEDULE = {"connect": "04:00", "premarket_plan": "08:30", "cutoff_reminder": "15:45",
+            "archive": "16:05", "shutdown": "20:00"}
