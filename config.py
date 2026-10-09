@@ -131,3 +131,73 @@ CACHE_DIR = "cache"                # Parquet history cache
 ARCHIVE_DIR = "archive"            # daily Webull CSV archive
 DB_PATH = "logs/agent.sqlite"
 
+
+# ---------------------------------------------------------------- strength / break risk (modules 3-4)
+# Factors are scaled to ~0..1 with these caps before weighting.
+STRENGTH_CAPS = {
+    "reaction_atr": 3.0,        # avg move away after pivots, in ATR
+    "tf_count": 3,              # timeframes agreeing
+    "pivots": 5,                # pivots in the zone
+    "touches": 30,              # bars touching the zone in the loopback
+    "volume_ratio": 3.0,        # volume of bars at the level vs average
+    "width_atr": 2.0,           # wider = weaker
+    "age_bars": 780,            # 10 sessions of 5m bars; older = weaker
+}
+# Default weights (logit space); Backtest 1 replaces them via models/zone_weights.json.
+STRENGTH_WEIGHTS = {
+    "bias": -1.0, "reaction_atr": 1.2, "tf_count": 1.0, "pivots": 0.8, "touches": 0.4,
+    "round_number": 0.4, "prior_day_level": 0.5, "volume_ratio": 0.6, "role_flip": 0.6,
+    "width_atr": -0.8, "age_bars": -0.4,
+}
+BREAK_CAPS = {
+    "recent_tests": 4,          # touches of this zone today before now
+    "approach_speed_atr": 3.0,  # distance covered in APPROACH_BARS, in ATR
+    "approach_rvol": 3.0,
+}
+BREAK_WEIGHTS = {
+    "bias": -1.5, "recent_tests": 1.2, "approach_speed_atr": 1.0, "approach_straight": 0.8,
+    "approach_rvol": 0.6, "regime_against": 1.0, "news_against": 1.5,
+}
+APPROACH_BARS = 6
+ROUND_CONFLUENCE_ATR = 0.25         # round number within this distance of the zone counts
+ZONE_WEIGHTS_PATH = "models/zone_weights.json"
+
+# ---------------------------------------------------------------- regime (module 5)
+REGIME_SYMBOLS = ("SPY", "QQQ", "SMH")
+REGIME_GAP_MIN_DAILY_ATR = 0.15     # gap smaller than this share of daily ATR = no gap
+REGIME_CONFIRM_BARS = 2             # same state this many bars = confirmed
+
+# ---------------------------------------------------------------- A+ (module 6)
+APLUS_GRADE = 6                     # score >= this = A+
+A_GRADE = 4                         # score >= this = A
+CATALYST_LOOKBACK_MIN = 120         # ticker headline within this many minutes = catalyst
+
+# ---------------------------------------------------------------- bounce (module 7)
+VOLUME_AVG_BARS = 20                # follow-through volume compared with this average
+
+# ---------------------------------------------------------------- trade management
+ENTRY_FILL_BARS = 2                 # entry limit stays working this many bars
+MIN_T1_R = 1.0                      # skip if T1 is closer than this
+DEFAULT_T1_R = 2.0                  # T1 when no opposing zone exists
+STALL_BARS = 3                      # stalling candles before a warning
+STALL_RANGE_ATR = 0.3
+EOD_EXIT = "15:55"                  # flat by this bar's close
+MIN_ZONE_SCORE = 50                 # zones below this are watched for break-and-retest only
+APLUS_ONLY = False
+REQUIRE_REGIME_AGREE = True
+NEWS_FILTER = True
+TIME_FILTER = None                  # e.g. ("09:45", "15:00") to restrict entries
+
+# ---------------------------------------------------------------- AI layer
+AI_PROMPTS_DIR = "ai/prompts"
+AI_MAX_TOKENS = 2000               # includes thinking; responses are short JSON
+AI_EFFORT = "low"                  # fast, focused judgments inside the 10 s budget
+AI_PRICE_IN_PER_MTOK = 2.0         # claude-sonnet-5-5 list prices, for the cost log
+AI_PRICE_OUT_PER_MTOK = 10.0
+AI_PRICE_TOLERANCE = 0.011         # an AI price must match an allowed level within 1 cent
+
+# ---------------------------------------------------------------- live runtime
+LIVE_HISTORY_SESSIONS = 25         # sessions of 5m bars kept in memory (RVOL needs 20)
+POLL_DELAY_S = 2                   # poll this long after each 5m boundary
+SCHEDULE = {"connect": "04:00", "premarket_plan": "08:30", "cutoff_reminder": "15:45",
+            "archive": "16:05", "shutdown": "20:00"}
