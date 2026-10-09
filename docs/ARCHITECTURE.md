@@ -57,7 +57,7 @@ Webull runs the live system; Alpaca supplies backtest history, because Webull's 
 
 **Timeframes**: 1m, 5m, 15m, 30m, 1h, D. Higher timeframes are resampled from 5m when a provider lacks them, using bar-close timestamps so no future data leaks.
 
-**Universe**: build/tune on SPY, QQQ, DELL, SOXL, NVDA; validate on 20 unseen stocks (AMD, TSLA, META, AAPL, MSFT, AMZN, AVGO, MU, PLTR, COIN + 10 more chosen before tuning starts). Market context: SPY, QQQ, SMH, VIXY (VIX index not covered by Webull).
+**Universe**: build/tune on SPY, QQQ, SOXL, NVDA (DELL dropped Oct 9: its Alpaca history failed the Webull alignment gate); validate on 20 unseen stocks (AMD, TSLA, META, AAPL, MSFT, AMZN, AVGO, MU, PLTR, COIN + 10 more chosen before tuning starts). Market context: SPY, QQQ, SMH, VIXY (VIX index not covered by Webull).
 
 **Alpaca vs Webull alignment check (Day 1, blocks the backtest until it passes)**: on the ~15 days both sources cover, compare 5m bars per stock for the same bar-start timestamp convention, the same regular vs extended session split, unadjusted minute prices on both (request Alpaca raw, SIP feed), closes within 0.05% and volume within 10%. Any mismatch is fixed in the provider before history is used.
 

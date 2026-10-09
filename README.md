@@ -20,7 +20,7 @@ cp .env.example .env   # Webull, Alpaca, Anthropic, Telegram keys (never commit 
 |---|---|---|
 | 1 | `python scripts/download_history.py` | 12 months 5m + daily + news cached |
 | 1 | `python scripts/check_alignment.py` | Alpaca vs Webull bars match (blocks backtests) |
-| 1 | `python scripts/run_zones.py DELL --as-of "2026-10-09 11:00" --timeframes 5m 1h` | zones within 0.1 ATR of TradingView on 5 days |
+| 1 | `python scripts/run_zones.py NVDA --as-of "2026-10-09 11:00" --timeframes 5m 1h` | zones within 0.1 ATR of TradingView on 5 days |
 | 2-3 | `python scripts/run_zone_backtest.py --jobs 8` (overnight) | score 80+ zones hold more than < 50 |
 | 5 | `python scripts/run_trade_backtest.py tune --jobs 8` (overnight) | config chosen on train only |
 | 6 | `python scripts/run_trade_backtest.py report --jobs 8` | win ≥ 60%, PF ≥ 1.5, worst-case expectancy ≥ +0.25R, adverse + neighbours pass, **chart review** of `reports/chart_review_sample.csv` |

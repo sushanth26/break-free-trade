@@ -1,6 +1,6 @@
 """Print labelled zones at a time, for checking against TradingView.
 
-  python scripts/run_zones.py DELL --as-of "2026-10-09 11:00" --timeframes 5m 1h --period 10 --width 2
+  python scripts/run_zones.py NVDA --as-of "2026-10-09 11:00" --timeframes 5m 1h --period 10 --width 2
 """
 import argparse
 

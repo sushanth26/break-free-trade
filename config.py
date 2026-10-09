@@ -18,7 +18,8 @@ BASE_TIMEFRAME = "5m"
 TIMEFRAMES = ("1m", "5m", "15m", "30m", "1h", "D")
 
 # ---------------------------------------------------------------- universe
-BUILD_STOCKS = ("SPY", "QQQ", "DELL", "SOXL", "NVDA")
+# DELL dropped 2026-10-09: Alpaca thin-bar closes differ from Webull/Robinhood (alignment p95 0.14 ATR).
+BUILD_STOCKS = ("SPY", "QQQ", "SOXL", "NVDA")
 # 10 more names must be picked before tuning starts (open item in the plan).
 VALIDATION_STOCKS = ("AMD", "TSLA", "META", "AAPL", "MSFT", "AMZN", "AVGO", "MU", "PLTR", "COIN")
 CONTEXT_SYMBOLS = ("SPY", "QQQ", "SMH", "VIXY")

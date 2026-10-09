@@ -2,7 +2,7 @@
 
 Exits non-zero if any symbol fails; the backtest is blocked until it passes.
 
-  python scripts/check_alignment.py --symbols SPY QQQ DELL SOXL NVDA
+  python scripts/check_alignment.py --symbols SPY QQQ SOXL NVDA
 """
 import argparse
 import sys
