@@ -8,3 +8,4 @@ archive/
 logs/
 *.sqlite
 *.db
+webull_data_sdk.log

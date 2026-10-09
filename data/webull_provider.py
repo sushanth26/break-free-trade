@@ -1,10 +1,11 @@
 """Webull OpenAPI bars (HTTP): recent bars at startup and the daily archive.
 
 The history endpoint returns at most 1,200 recent bars with no date range.
-SDK names and response shapes may differ from the docs, so the parser is
-tolerant of key names and nesting; verify on first run with
-scripts/check_alignment.py. Only market-data calls are used here. This
-module must never call an order-placing API.
+Uses the data-only ``DataClient`` of webull-openapi-python-sdk v3 (package
+``webull``); no trading client is ever created. Minute bars are unadjusted,
+daily bars are adjusted by Webull. Response shapes may differ from the docs,
+so the parser is tolerant of key names and nesting; verify on first run with
+scripts/check_alignment.py.
 """
 from __future__ import annotations
 
@@ -77,24 +78,28 @@ def parse_bars(payload: Any, time_shift: pd.Timedelta = pd.Timedelta(0)) -> pd.D
     return normalize_bars(df.apply(pd.to_numeric))
 
 
+SESSIONS = {"regular": ["RTH"], "extended": ["PRE", "RTH", "ATH"]}
+
+
 class WebullProvider(BarProvider):
     name = "webull"
 
     def __init__(self, app_key: str | None = None, app_secret: str | None = None,
-                 region: str | None = None, stamps_bar_end: bool = False):
-        from webullsdkcore.client import ApiClient
-        from webullsdktrade.api import API
+                 region: str | None = None, stamps_bar_end: bool = False, session: str = "extended"):
+        from webull.core.client import ApiClient
+        from webull.data.data_client import DataClient
 
         client = ApiClient(app_key or os.environ["WEBULL_APP_KEY"],
                            app_secret or os.environ["WEBULL_APP_SECRET"],
                            region or os.environ.get("WEBULL_REGION", "us"))
-        # API bundles market data and trading; only .market_data is ever used.
-        self.market_data = API(client).market_data
+        self.market_data = DataClient(client).market_data
         self.stamps_bar_end = stamps_bar_end
+        self.sessions = SESSIONS[session]
 
     def get_bars(self, symbol, tf, start=None, end=None):
-        count = config.WEBULL_MAX_BARS
-        res = self.market_data.get_history_bar(symbol.upper(), "US_STOCK", _TIMESPAN[tf], count)
+        res = self.market_data.get_batch_history_bar(
+            [symbol.upper()], "US_STOCK", _TIMESPAN[tf], count=str(config.WEBULL_MAX_BARS),
+            trading_sessions=self.sessions)
         status = getattr(res, "status_code", 200)
         if status == 403:
             raise PermissionError("Webull 403: market data subscription not active for this app key")
