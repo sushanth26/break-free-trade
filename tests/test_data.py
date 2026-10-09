@@ -1,0 +1,80 @@
+import pandas as pd
+import pytest
+
+from data.alignment import compare_bars, detect_shift
+from data.calendar import in_news_window, is_earnings_week
+from data.csv_provider import CsvProvider, read_csv_bars, write_cache, write_day_csv
+from data.news import headlines_before, normalize_news
+from data.webull_provider import parse_bars
+from tests.synthetic import random_bars
+
+ET = "America/New_York"
+
+
+def test_webull_parser_tolerates_shapes():
+    rows = [{"time": "2026-10-09T13:30:00Z", "open": "1", "high": "2", "low": "0.5", "close": "1.5", "volume": "100"},
+            {"time": "2026-10-09T13:35:00Z", "open": "1.5", "high": "2", "low": "1", "close": "1.8", "volume": "50"}]
+    a = parse_bars({"data": {"result": rows}})
+    b = parse_bars([{"t": 1791552600000, "o": 1, "h": 2, "l": 0.5, "c": 1.5, "v": 100},
+                    {"t": 1791552900000, "o": 1.5, "h": 2, "l": 1, "c": 1.8, "v": 50}])
+    assert a.index[0] == pd.Timestamp("2026-10-09 09:30", tz=ET)
+    assert a["close"].tolist() == [1.5, 1.8] and a.dtypes.eq(float).all()
+    pd.testing.assert_frame_equal(a, b)
+    shifted = parse_bars(rows, time_shift=-pd.Timedelta("5min"))
+    assert shifted.index[0] == pd.Timestamp("2026-10-09 09:25", tz=ET)
+    assert parse_bars({"data": []}).empty
+
+
+def test_csv_archive_roundtrip_and_merge(tmp_path):
+    bars = random_bars(days=3)
+    write_day_csv(bars.iloc[:100], "dell", "5m", tmp_path)
+    files = write_day_csv(bars.iloc[50:], "dell", "5m", tmp_path)
+    assert len(files) == 3
+    out = CsvProvider(tmp_path).get_bars("DELL", "5m")
+    pd.testing.assert_frame_equal(out, bars, check_freq=False)
+    one = read_csv_bars(files[0])
+    assert len(one) == 78
+
+
+def test_parquet_cache_and_clip(tmp_path):
+    bars = random_bars(days=3)
+    write_cache(bars, "alpaca", "NVDA", "5m", tmp_path)
+    out = CsvProvider(tmp_path, cache_provider="alpaca").get_bars("NVDA", "5m", start="2026-03-03", end="2026-03-04")
+    assert len(out) == 78 and out.index[0] == pd.Timestamp("2026-03-03 09:30", tz=ET)
+
+
+def test_alignment_passes_on_identical_and_fails_on_drift():
+    a = random_bars(days=5)
+    assert compare_bars(a, a.copy(), "X").passed
+    b = a.copy()
+    b.iloc[10, b.columns.get_loc("close")] *= 1.001        # 0.1% off
+    b.iloc[20, b.columns.get_loc("volume")] *= 1.5
+    r = compare_bars(a, b, "X")
+    assert not r.passed and r.close_fail == 1 and r.volume_fail == 1
+
+
+def test_alignment_detects_bar_end_timestamps():
+    a = random_bars(days=5)
+    b = a.set_axis(a.index + pd.Timedelta("5min"))        # stamped with bar end
+    assert detect_shift(a, b) == 1
+    assert not compare_bars(a, b, "X").passed
+
+
+def test_news_only_before_bar_close():
+    news = normalize_news([
+        {"id": 1, "created_at": "2026-10-09T14:00:00Z", "headline": "a", "symbols": ["DELL"]},
+        {"id": 2, "created_at": "2026-10-09T14:05:00Z", "headline": "b", "symbols": ["NVDA"]},
+    ])
+    t = pd.Timestamp("2026-10-09 10:05", tz=ET)               # = 14:05Z
+    assert headlines_before(news, t)["id"].tolist() == [1]
+    assert headlines_before(news, t + pd.Timedelta("1s"), symbols={"NVDA"})["id"].tolist() == [2]
+
+
+def test_news_window_and_earnings_week():
+    econ = pd.DataFrame({"time": [pd.Timestamp("2026-10-14 08:30", tz=ET)], "event": ["CPI"]})
+    assert in_news_window("2026-10-14 08:25", econ)
+    assert in_news_window("2026-10-14 08:45", econ)
+    assert not in_news_window("2026-10-14 08:46", econ)
+    earn = pd.DataFrame({"date": [pd.Timestamp("2026-10-28").date()], "symbol": ["META"]})
+    assert is_earnings_week("meta", "2026-10-26 10:00", earn)
+    assert not is_earnings_week("META", "2026-10-19 10:00", earn)
