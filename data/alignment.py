@@ -48,14 +48,37 @@ def detect_shift(a: pd.DataFrame, b: pd.DataFrame, tf: str = "5m", max_shift: in
     return max(rates, key=lambda k: (rates[k], -abs(k)))
 
 
-def compare_bars(a: pd.DataFrame, b: pd.DataFrame, symbol: str, tf: str = "5m",
-                 session: str = "regular") -> AlignmentResult:
-    """Compare provider ``a`` (Alpaca) with ``b`` (Webull) on their overlapping days."""
+def _overlap(a: pd.DataFrame, b: pd.DataFrame, session: str, before=None
+             ) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Bars of both sources on the days both cover (dates < ``before`` only), within ``session``."""
     days = set(a.index.date) & set(b.index.date)
+    if before is not None:
+        days = {d for d in days if d < pd.Timestamp(before).date()}
     a = a[[d in days for d in a.index.date]]
     b = b[[d in days for d in b.index.date]]
-    a = a[session_mask(a.index, session).values]
-    b = b[session_mask(b.index, session).values]
+    return a[session_mask(a.index, session).values], b[session_mask(b.index, session).values]
+
+
+def mismatches(a: pd.DataFrame, b: pd.DataFrame, session: str = "regular", before=None) -> pd.DataFrame:
+    """Matched bars whose close or volume is outside tolerance, worst close difference first."""
+    a, b = _overlap(a, b, session, before)
+    common = a.index.intersection(b.index)
+    ca, cb = a.loc[common], b.loc[common]
+    out = pd.DataFrame({"close_a": ca["close"], "close_b": cb["close"],
+                        "close_pct": (ca["close"] - cb["close"]).abs() / ca["close"] * 100,
+                        "vol_a": ca["volume"], "vol_b": cb["volume"],
+                        "vol_pct": (ca["volume"] - cb["volume"]).abs() / ca["volume"].where(ca["volume"] > 0) * 100})
+    bad = (out["close_pct"] > config.ALIGN_CLOSE_TOL_PCT) | (out["vol_pct"] > config.ALIGN_VOLUME_TOL_PCT)
+    return out[bad].sort_values(["close_pct", "vol_pct"], ascending=False)
+
+
+def compare_bars(a: pd.DataFrame, b: pd.DataFrame, symbol: str, tf: str = "5m",
+                 session: str = "regular", before=None) -> AlignmentResult:
+    """Compare provider ``a`` (Alpaca) with ``b`` (Webull) on their overlapping days.
+
+    ``before``: only dates before this one (pass today so a forming session is skipped).
+    """
+    a, b = _overlap(a, b, session, before)
     shift = detect_shift(a, b, tf)
     common = a.index.intersection(b.index)
     ca, cb = a.loc[common], b.loc[common]

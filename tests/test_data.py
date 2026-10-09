@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from data.alignment import compare_bars, detect_shift
+from data.alignment import compare_bars, detect_shift, mismatches
 from data.calendar import in_news_window, is_earnings_week
 from data.csv_provider import CsvProvider, read_csv_bars, write_cache, write_day_csv
 from data.news import headlines_before, normalize_news
@@ -53,6 +53,19 @@ def test_alignment_passes_on_identical_and_fails_on_drift():
     assert not r.passed and r.close_fail == 1 and r.volume_fail == 1
 
 
+def test_alignment_skips_forming_day_and_lists_mismatches():
+    a = random_bars(days=5)
+    b = a.copy()
+    b.iloc[10, b.columns.get_loc("close")] *= 1.001
+    b = b.iloc[:-3]                                        # last day still forming on one side
+    last = a.index[-1].normalize()
+    assert compare_bars(a, b, "X").only_a == 3
+    r = compare_bars(a, b, "X", before=last)
+    assert r.only_a == 0 and r.only_b == 0 and r.close_fail == 1
+    bad = mismatches(a, b, before=last)
+    assert list(bad.index) == [a.index[10]] and bad["close_pct"].iloc[0] > 0.09
+
+
 def test_alignment_detects_bar_end_timestamps():
     a = random_bars(days=5)
     b = a.set_axis(a.index + pd.Timedelta("5min"))        # stamped with bar end
@@ -78,3 +91,30 @@ def test_news_window_and_earnings_week():
     earn = pd.DataFrame({"date": [pd.Timestamp("2026-10-28").date()], "symbol": ["META"]})
     assert is_earnings_week("meta", "2026-10-26 10:00", earn)
     assert not is_earnings_week("META", "2026-10-19 10:00", earn)
+
+
+def test_news_fetch_passes_no_total_limit(monkeypatch):
+    """alpaca-py treats ``limit`` as a total cap; passing one truncated a year of news to 50."""
+    import types, sys
+    seen = {}
+
+    class FakeReq:
+        def __init__(self, **kw):
+            seen.update(kw)
+
+    class FakeClient:
+        def __init__(self, *a):
+            pass
+
+        def get_news(self, req):
+            return types.SimpleNamespace(data={"news": [
+                {"id": i, "created_at": "2026-10-09T14:00:00Z", "headline": "h", "symbols": ["DELL"]}
+                for i in range(120)]})
+
+    monkeypatch.setitem(sys.modules, "alpaca.data.historical.news", types.SimpleNamespace(NewsClient=FakeClient))
+    monkeypatch.setitem(sys.modules, "alpaca.data.requests", types.SimpleNamespace(NewsRequest=FakeReq))
+    monkeypatch.setenv("ALPACA_API_KEY", "k")
+    monkeypatch.setenv("ALPACA_SECRET_KEY", "s")
+    from data.news import fetch_alpaca_news
+    out = fetch_alpaca_news(["DELL"], "2026-01-01", "2026-10-09")
+    assert "limit" not in seen and len(out) == 120

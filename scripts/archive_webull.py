@@ -13,7 +13,7 @@ from data.webull_provider import WebullProvider
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--symbols", nargs="+", default=list(config.BUILD_STOCKS + config.CONTEXT_SYMBOLS))
+    ap.add_argument("--symbols", nargs="+", default=list(dict.fromkeys(config.BUILD_STOCKS + config.CONTEXT_SYMBOLS)))
     ap.add_argument("--timeframes", nargs="+", default=["5m", "1m"])
     ap.add_argument("--stamps-bar-end", action="store_true",
                     help="set if the alignment check shows Webull stamps bars with their end time")
