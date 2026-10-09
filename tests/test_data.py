@@ -1,4 +1,6 @@
 import pandas as pd
+
+import config
 import pytest
 
 from data.alignment import compare_bars, detect_shift, mismatches
@@ -6,6 +8,7 @@ from data.calendar import in_news_window, is_earnings_week
 from data.csv_provider import CsvProvider, read_csv_bars, write_cache, write_day_csv
 from data.news import headlines_before, normalize_news
 from data.webull_provider import parse_bars
+from engine.indicators import atr
 from tests.synthetic import random_bars
 
 ET = "America/New_York"
@@ -47,23 +50,45 @@ def test_alignment_passes_on_identical_and_fails_on_drift():
     a = random_bars(days=5)
     assert compare_bars(a, a.copy(), "X").passed
     b = a.copy()
-    b.iloc[10, b.columns.get_loc("close")] *= 1.001        # 0.1% off
-    b.iloc[20, b.columns.get_loc("volume")] *= 1.5
+    i = 100
+    b.iloc[i, b.columns.get_loc("close")] += 0.6 * atr(a).iloc[i]   # one bar 0.6 ATR off
     r = compare_bars(a, b, "X")
-    assert not r.passed and r.close_fail == 1 and r.volume_fail == 1
+    assert not r.passed and r.price_fail == 1 and r.price_max_atr > config.ALIGN_PRICE_MAX_ATR
+
+
+def test_alignment_tolerates_small_noise_but_not_drift():
+    a = random_bars(days=5)
+    unit = atr(a)
+    noisy = a.copy()
+    noisy.iloc[50::40, noisy.columns.get_loc("close")] += 0.2 * unit.iloc[50::40]   # ~2% of bars, 0.2 ATR
+    assert compare_bars(a, noisy, "X").passed
+    drift = a.copy()
+    drift.iloc[20:, drift.columns.get_loc("close")] += 0.15 * unit.iloc[20:]       # every bar 0.15 ATR off
+    assert not compare_bars(a, drift, "X").passed
+
+
+def test_alignment_volume_skips_auction_bar_only():
+    a = random_bars(days=5)
+    auction = a.index.strftime("%H:%M") == "15:55"
+    b = a.copy()
+    b.loc[auction, "volume"] *= 3                          # Webull folds the closing cross in
+    assert compare_bars(a, b, "X").passed
+    b = a.copy()
+    b.iloc[::10, b.columns.get_loc("volume")] *= 1.5       # 10% of ordinary bars off
+    assert not compare_bars(a, b, "X").passed
 
 
 def test_alignment_skips_forming_day_and_lists_mismatches():
     a = random_bars(days=5)
     b = a.copy()
-    b.iloc[10, b.columns.get_loc("close")] *= 1.001
+    b.iloc[100, b.columns.get_loc("close")] += 0.3 * atr(a).iloc[100]
     b = b.iloc[:-3]                                        # last day still forming on one side
     last = a.index[-1].normalize()
     assert compare_bars(a, b, "X").only_a == 3
     r = compare_bars(a, b, "X", before=last)
-    assert r.only_a == 0 and r.only_b == 0 and r.close_fail == 1
+    assert r.only_a == 0 and r.only_b == 0 and r.price_fail == 1 and r.passed
     bad = mismatches(a, b, before=last)
-    assert list(bad.index) == [a.index[10]] and bad["close_pct"].iloc[0] > 0.09
+    assert list(bad.index) == [a.index[100]] and abs(bad["close_atr"].iloc[0] - 0.3) < 1e-9
 
 
 def test_alignment_detects_bar_end_timestamps():

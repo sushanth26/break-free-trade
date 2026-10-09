@@ -31,8 +31,12 @@ OOS_END = "2026-10-16"
 HISTORY_MONTHS = 12
 
 # ---------------------------------------------------------------- data checks
-ALIGN_CLOSE_TOL_PCT = 0.05     # Alpaca vs Webull closes within 0.05%
-ALIGN_VOLUME_TOL_PCT = 10.0    # volume within 10%
+ALIGN_PRICE_P95_ATR = 0.1      # Alpaca vs Webull close/high/low: 95% of diffs within 0.1 ATR (engine precision)
+ALIGN_PRICE_MAX_ATR = 0.5      # and no single diff above 0.5 ATR
+ALIGN_VOLUME_TOL_PCT = 10.0    # a bar's volume "matches" within 10%
+ALIGN_VOLUME_MIN_SHARE = 0.95  # share of bars whose volume must match
+ALIGN_SKIP_VOLUME_SLOTS = ("15:55",)  # closing-auction bar: Webull includes the 16:00 cross, Alpaca does not
+ALIGN_SHIFT_CLOSE_PCT = 0.05   # close match used only to detect a timestamp shift
 WEBULL_MAX_BARS = 1200         # history endpoint cap
 
 # ---------------------------------------------------------------- profile (module 1)

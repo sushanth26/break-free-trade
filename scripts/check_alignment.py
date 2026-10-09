@@ -34,16 +34,19 @@ def main():
         rows.append(compare_bars(a, b, sym, session=args.session, before=today))
         worst[sym] = mismatches(a, b, session=args.session, before=today)
 
-    print(f"{'symbol':<6} {'pass':<4} {'matched':>7} {'onlyA':>5} {'onlyW':>5} {'closeX':>6} "
-          f"{'volX':>5} {'shift':>5} {'maxClose%':>9} {'medVol%':>7}")
+    print(f"{'symbol':<6} {'pass':<4} {'matched':>7} {'onlyA':>5} {'onlyW':>5} {'shift':>5} "
+          f"{'p95 ATR':>7} {'max ATR':>7} {'>0.1ATR':>7} {'vol ok':>6} {'medVol%':>7}")
     for r in rows:
         print(f"{r.symbol:<6} {'yes' if r.passed else 'NO':<4} {r.matched:>7} {r.only_a:>5} {r.only_b:>5} "
-              f"{r.close_fail:>6} {r.volume_fail:>5} {r.best_shift_bars:>5} "
-              f"{r.max_close_diff_pct:>9.3f} {r.median_volume_diff_pct:>7.1f}")
+              f"{r.best_shift_bars:>5} {r.price_p95_atr:>7.3f} {r.price_max_atr:>7.3f} {r.price_fail:>7} "
+              f"{r.volume_within:>6.0%} {r.median_volume_diff_pct:>7.1f}")
+    print(f"\npass: p95 <= {config.ALIGN_PRICE_P95_ATR} ATR, max <= {config.ALIGN_PRICE_MAX_ATR} ATR, "
+          f"vol ok >= {config.ALIGN_VOLUME_MIN_SHARE:.0%} (bars {', '.join(config.ALIGN_SKIP_VOLUME_SLOTS)} skipped for volume)")
     for sym, bad in worst.items():
         if args.show and len(bad):
             print(f"\n{sym}: {len(bad)} bars outside tolerance (A = Alpaca, W = Webull), worst {args.show}")
-            print(bad.head(args.show).rename(columns=lambda c: c.replace("_a", " A").replace("_b", " W"))
+            cols = ["close_a", "close_b", "close_atr", "high_atr", "low_atr", "vol_a", "vol_b", "vol_pct"]
+            print(bad[cols].head(args.show).rename(columns=lambda c: c.replace("_a", " A").replace("_b", " W"))
                   .to_string(float_format=lambda x: f"{x:.3f}"))
     if any(r.best_shift_bars for r in rows):
         print("\nTimestamp convention differs (shift != 0): rerun with --stamps-bar-end or fix the provider.")
