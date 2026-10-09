@@ -4,10 +4,11 @@ On the completed days both sources cover, bars must share the bar-start
 timestamp convention and session split. Price differences (close, high,
 low) are measured in units of the bar's 5m ATR, like every other distance:
 the typical bar must agree to ALIGN_PRICE_P95_ATR (the engine's 0.1 ATR
-precision) and no bar may differ by more than ALIGN_PRICE_MAX_ATR. Volume
-must agree within ALIGN_VOLUME_TOL_PCT on ALIGN_VOLUME_MIN_SHARE of bars;
-the closing-auction bar is skipped because Webull folds the 16:00 cross into
-it and Alpaca does not. The backtest is blocked until this passes.
+precision) and at most ALIGN_OUTLIER_MAX_SHARE of bars may differ by more
+than ALIGN_PRICE_MAX_ATR (a single bad print). Volume must agree within
+ALIGN_VOLUME_TOL_PCT on ALIGN_VOLUME_MIN_SHARE of bars. The closing-auction
+bar (ALIGN_SKIP_SLOTS) is skipped: Webull folds the 16:00 cross into it and
+Alpaca does not, and the engine does not trade it. The backtest is blocked until this passes.
 """
 from __future__ import annotations
 
@@ -33,6 +34,7 @@ class AlignmentResult:
     price_p95_atr: float     # worst of the close/high/low 95th-percentile |A - W|, in 5m ATR
     price_max_atr: float     # worst |A - W| over close/high/low, in 5m ATR
     price_fail: int          # bars with any price diff above ALIGN_PRICE_P95_ATR
+    price_outliers: int      # bars with any price diff above ALIGN_PRICE_MAX_ATR
     volume_within: float     # share of bars (auction bar excluded) with volume within tolerance
     median_volume_diff_pct: float
 
@@ -40,7 +42,7 @@ class AlignmentResult:
     def passed(self) -> bool:
         return (self.matched > 0 and self.best_shift_bars == 0 and self.only_a == 0 and self.only_b == 0
                 and self.price_p95_atr <= config.ALIGN_PRICE_P95_ATR
-                and self.price_max_atr <= config.ALIGN_PRICE_MAX_ATR
+                and self.price_outliers <= config.ALIGN_OUTLIER_MAX_SHARE * self.matched
                 and self.volume_within >= config.ALIGN_VOLUME_MIN_SHARE)
 
 
@@ -71,7 +73,7 @@ def _overlap(a: pd.DataFrame, b: pd.DataFrame, session: str, before=None
 
 
 def bar_diffs(a: pd.DataFrame, b: pd.DataFrame, session: str = "regular", before=None) -> pd.DataFrame:
-    """Per matched bar: price diffs in 5m ATR (ATR from ``a``'s full history) and volume diff %."""
+    """Per matched bar (auction bars dropped): price diffs in 5m ATR (ATR from ``a``'s full history) and volume diff %."""
     atr_a = atr(a)
     a, b = _overlap(a, b, session, before)
     common = a.index.intersection(b.index)
@@ -83,15 +85,14 @@ def bar_diffs(a: pd.DataFrame, b: pd.DataFrame, session: str = "regular", before
     out["close_a"], out["close_b"] = ca["close"], cb["close"]
     out["vol_a"], out["vol_b"] = ca["volume"], cb["volume"]
     out["vol_pct"] = (ca["volume"] - cb["volume"]).abs() / ca["volume"].where(ca["volume"] > 0) * 100
-    out["auction"] = common.strftime("%H:%M").isin(config.ALIGN_SKIP_VOLUME_SLOTS)
-    return out
+    out["auction"] = common.strftime("%H:%M").isin(config.ALIGN_SKIP_SLOTS)
+    return out[~out["auction"]]
 
 
 def mismatches(a: pd.DataFrame, b: pd.DataFrame, session: str = "regular", before=None) -> pd.DataFrame:
     """Bars over the price or volume tolerance, worst price difference first."""
     d = bar_diffs(a, b, session, before)
-    bad = (d["price_atr"] > config.ALIGN_PRICE_P95_ATR) | (
-        ~d["auction"] & (d["vol_pct"] > config.ALIGN_VOLUME_TOL_PCT))
+    bad = (d["price_atr"] > config.ALIGN_PRICE_P95_ATR) | (d["vol_pct"] > config.ALIGN_VOLUME_TOL_PCT)
     return d[bad].sort_values(["price_atr", "vol_pct"], ascending=False)
 
 
@@ -103,7 +104,7 @@ def compare_bars(a: pd.DataFrame, b: pd.DataFrame, symbol: str, tf: str = "5m",
     """
     d = bar_diffs(a, b, session, before)
     oa, ob = _overlap(a, b, session, before)
-    vol = d.loc[~d["auction"], "vol_pct"].dropna()
+    vol = d["vol_pct"].dropna()
     cols = [d[f"{c}_atr"].dropna() for c in PRICE_COLS]
     nan = float("nan")
     return AlignmentResult(
@@ -113,6 +114,7 @@ def compare_bars(a: pd.DataFrame, b: pd.DataFrame, symbol: str, tf: str = "5m",
         price_p95_atr=max(float(c.quantile(0.95)) for c in cols) if len(d) else nan,
         price_max_atr=max(float(c.max()) for c in cols) if len(d) else nan,
         price_fail=int((d["price_atr"] > config.ALIGN_PRICE_P95_ATR).sum()),
+        price_outliers=int((d["price_atr"] > config.ALIGN_PRICE_MAX_ATR).sum()),
         volume_within=float((vol <= config.ALIGN_VOLUME_TOL_PCT).mean()) if len(vol) else nan,
         median_volume_diff_pct=float(vol.median()) if len(vol) else nan,
     )

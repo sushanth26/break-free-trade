@@ -35,13 +35,14 @@ def main():
         worst[sym] = mismatches(a, b, session=args.session, before=today)
 
     print(f"{'symbol':<6} {'pass':<4} {'matched':>7} {'onlyA':>5} {'onlyW':>5} {'shift':>5} "
-          f"{'p95 ATR':>7} {'max ATR':>7} {'>0.1ATR':>7} {'vol ok':>6} {'medVol%':>7}")
+          f"{'p95 ATR':>7} {'max ATR':>7} {'>0.1ATR':>7} {'>0.5ATR':>7} {'vol ok':>6} {'medVol%':>7}")
     for r in rows:
         print(f"{r.symbol:<6} {'yes' if r.passed else 'NO':<4} {r.matched:>7} {r.only_a:>5} {r.only_b:>5} "
-              f"{r.best_shift_bars:>5} {r.price_p95_atr:>7.3f} {r.price_max_atr:>7.3f} {r.price_fail:>7} "
+              f"{r.best_shift_bars:>5} {r.price_p95_atr:>7.3f} {r.price_max_atr:>7.3f} {r.price_fail:>7} {r.price_outliers:>7} "
               f"{r.volume_within:>6.0%} {r.median_volume_diff_pct:>7.1f}")
-    print(f"\npass: p95 <= {config.ALIGN_PRICE_P95_ATR} ATR, max <= {config.ALIGN_PRICE_MAX_ATR} ATR, "
-          f"vol ok >= {config.ALIGN_VOLUME_MIN_SHARE:.0%} (bars {', '.join(config.ALIGN_SKIP_VOLUME_SLOTS)} skipped for volume)")
+    print(f"\npass: p95 <= {config.ALIGN_PRICE_P95_ATR} ATR, >{config.ALIGN_PRICE_MAX_ATR} ATR on <= "
+          f"{config.ALIGN_OUTLIER_MAX_SHARE:.1%} of bars, vol ok >= {config.ALIGN_VOLUME_MIN_SHARE:.0%} "
+          f"(bars {', '.join(config.ALIGN_SKIP_SLOTS)} skipped)")
     for sym, bad in worst.items():
         if args.show and len(bad):
             print(f"\n{sym}: {len(bad)} bars outside tolerance (A = Alpaca, W = Webull), worst {args.show}")

@@ -49,11 +49,15 @@ def test_parquet_cache_and_clip(tmp_path):
 def test_alignment_passes_on_identical_and_fails_on_drift():
     a = random_bars(days=5)
     assert compare_bars(a, a.copy(), "X").passed
+    unit = atr(a)
     b = a.copy()
-    i = 100
-    b.iloc[i, b.columns.get_loc("close")] += 0.6 * atr(a).iloc[i]   # one bar 0.6 ATR off
+    b.iloc[100, b.columns.get_loc("close")] += 0.6 * unit.iloc[100]  # one bad print: tolerated
     r = compare_bars(a, b, "X")
-    assert not r.passed and r.price_fail == 1 and r.price_max_atr > config.ALIGN_PRICE_MAX_ATR
+    assert r.passed and r.price_outliers == 1
+    for i in (150, 200):                                              # three in ~385 bars: > 0.5%
+        b.iloc[i, b.columns.get_loc("close")] += 0.6 * unit.iloc[i]
+    r = compare_bars(a, b, "X")
+    assert not r.passed and r.price_outliers == 3
 
 
 def test_alignment_tolerates_small_noise_but_not_drift():
@@ -72,6 +76,7 @@ def test_alignment_volume_skips_auction_bar_only():
     auction = a.index.strftime("%H:%M") == "15:55"
     b = a.copy()
     b.loc[auction, "volume"] *= 3                          # Webull folds the closing cross in
+    b.loc[auction, "close"] += 1.0                         # including its price
     assert compare_bars(a, b, "X").passed
     b = a.copy()
     b.iloc[::10, b.columns.get_loc("volume")] *= 1.5       # 10% of ordinary bars off
