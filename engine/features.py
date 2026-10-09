@@ -25,6 +25,21 @@ def _ffill_by_close(src: pd.Series, src_close: pd.DatetimeIndex, target: pd.Data
     return pd.Series(out["v"].to_numpy(), index=target.index)
 
 
+class Row(dict):
+    """A feature row as a plain dict (fast lookups) that keeps its bar time in ``.name``."""
+    __slots__ = ("name",)
+
+    def __init__(self, data, name):
+        super().__init__(data)
+        self.name = name
+
+
+def feature_rows(feats: pd.DataFrame) -> list[Row]:
+    """All rows of a feature table as Row dicts, in order."""
+    cols = list(feats.columns)
+    return [Row(zip(cols, vals), t) for t, vals in zip(feats.index, feats.itertuples(index=False, name=None))]
+
+
 def compute_features(bars: pd.DataFrame, daily: pd.DataFrame | None = None) -> pd.DataFrame:
     """Indicators for 5m bars (regular + extended hours if present)."""
     f = pd.DataFrame(index=bars.index)

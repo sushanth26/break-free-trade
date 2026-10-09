@@ -81,3 +81,19 @@ def against(regime: str, gap_dir: str, direction: str) -> bool:
     if direction == "long":
         return regime == "bearish" or (regime == "gap_filling" and gap_dir == "up")
     return regime == "bullish" or (regime == "gap_filling" and gap_dir == "down")
+
+
+class RegimeLookup:
+    """Fast ``regime_at`` for backtests (array search instead of DataFrame access)."""
+
+    def __init__(self, market: pd.DataFrame):
+        self.times = market.index.as_unit("ns").asi8
+        self.regime = market["regime"].to_numpy()
+        self.gap = market["gap_dir"].to_numpy()
+        self.conf = market["confirmed"].to_numpy()
+
+    def __call__(self, now: pd.Timestamp) -> tuple[str, str, bool]:
+        k = int(np.searchsorted(self.times, now.value, side="right")) - 1
+        if k < 0:
+            return "choppy", "", False
+        return self.regime[k], self.gap[k], bool(self.conf[k])

@@ -40,3 +40,36 @@ def random_bars(days: int = 30, start_price: float = 100.0, seed: int = 0,
 def daily_from(bars: pd.DataFrame) -> pd.DataFrame:
     from data.base import resample
     return resample(bars, "D")
+
+
+def scripted_bounce_bars(warmup_days: int = 5, seed: int = 0) -> pd.DataFrame:
+    """Random warm-up days, then a day that declines into 99.5-100.0, rejects it
+    with a long lower wick on high volume, fills at the rejection close and rallies."""
+    warm = random_bars(days=warmup_days, start_price=101.0, seed=seed)
+    idx = session_index(warmup_days + 1)[-78:]
+    rows = []
+    price = 101.0
+    for k in range(78):
+        t = idx[k]
+        if k < 6:                                   # 09:30-09:55 drift
+            o, c = price, price + (0.02 if k % 2 else -0.02)
+            rows.append((o, max(o, c) + 0.05, min(o, c) - 0.05, c, 5000.0))
+        elif k < 10:                                # decline toward the zone
+            o, c = price, price - 0.18
+            rows.append((o, o + 0.03, c - 0.03, c, 6000.0))
+        elif k == 10:                               # touch + rejection
+            o = price
+            rows.append((o, o + 0.02, 99.6, 100.08, 20000.0))
+            c = 100.08
+        elif k == 11:                               # fill bar: dips to 100.0, closes above zone
+            o, c = 100.1, 100.3
+            rows.append((o, 100.35, 100.0, c, 9000.0))
+        elif k < 20:                                # rally through T1 (~101.96)
+            o, c = price, price + 0.25
+            rows.append((o, c + 0.05, o - 0.02, c, 8000.0))
+        else:                                       # quiet afternoon
+            o, c = price, price + (0.03 if k % 2 else -0.03)
+            rows.append((o, max(o, c) + 0.04, min(o, c) - 0.04, c, 5000.0))
+        price = rows[-1][3]
+    day = pd.DataFrame(rows, columns=["open", "high", "low", "close", "volume"], index=idx)
+    return normalize_bars(pd.concat([warm, day]))

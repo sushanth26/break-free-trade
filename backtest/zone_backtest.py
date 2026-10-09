@@ -38,6 +38,14 @@ class SymbolData:
     def __post_init__(self):
         if self.feats is None:
             self.feats = compute_features(self.bars, self.daily)
+        self._rows = None
+
+    @property
+    def rows(self):
+        if self._rows is None:
+            from engine.features import feature_rows
+            self._rows = feature_rows(self.feats)
+        return self._rows
 
 
 def config_grid() -> list[tuple[tuple[str, ...], ZoneConfig]]:
