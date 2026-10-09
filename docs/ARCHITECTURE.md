@@ -57,7 +57,7 @@ Webull runs the live system; Alpaca supplies backtest history, because Webull's 
 
 **Timeframes**: 1m, 5m, 15m, 30m, 1h, D. Higher timeframes are resampled from 5m when a provider lacks them, using bar-close timestamps so no future data leaks.
 
-**Universe**: build/tune on SPY, QQQ, SOXL, NVDA (DELL dropped Oct 9: its Alpaca history failed the Webull alignment gate); validate on 20 unseen stocks (AMD, TSLA, META, AAPL, MSFT, AMZN, AVGO, MU, PLTR, COIN + 10 more chosen before tuning starts). Market context: SPY, QQQ, SMH, VIXY (VIX index not covered by Webull).
+**Universe**: build/tune on SPY, QQQ, SOXL, NVDA (DELL dropped Oct 9: its Alpaca history failed the Webull alignment gate); validate on 10 unseen stocks (AMD, TSLA, META, AAPL, MSFT, AMZN, AVGO, MU, PLTR, COIN — confirmed Oct 9, no further additions). Market context: SPY, QQQ, SMH, VIXY (VIX index not covered by Webull).
 
 **Alpaca vs Webull alignment check (Day 1, blocks the backtest until it passes)**: on the ~15 days both sources cover, compare 5m bars per stock for the same bar-start timestamp convention, the same regular vs extended session split, unadjusted minute prices on both (request Alpaca raw, SIP feed), closes within 0.05% and volume within 10%. Any mismatch is fixed in the provider before history is used.
 
@@ -133,7 +133,7 @@ Two backtests run on 12 months of history: first the zones alone (do they hold?)
 |------------------------|--------------------------------------|----------------------------------------|
 | Train                  | Oct 2025 – Jun 2026, 5 build stocks  | Learning weights, picking configs      |
 | Out-of-sample (time)   | Jul – Oct 2026, same 5 stocks        | Confirming results hold later in time  |
-| Out-of-sample (stocks) | Full 12 months, 20 unseen stocks     | Confirming results hold on other names |
+| Out-of-sample (stocks) | Full 12 months, 10 unseen stocks     | Confirming results hold on other names |
 | Walk-forward           | Rolling 3-month train → 1-month test | Stability month to month               |
 
 **Backtest 1 — zone quality (144 configs)**
@@ -260,7 +260,7 @@ Open items:
 
 - [ ] Anthropic API key
 
-- [ ] Pick the 10 extra unseen validation stocks before tuning starts
+- [x] Validation stocks confirmed Oct 9: the existing 10 (AMD, TSLA, META, AAPL, MSFT, AMZN, AVGO, MU, PLTR, COIN), no additions
 
 - [ ] Dollar risk per trade and max daily loss
 

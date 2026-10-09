@@ -66,7 +66,9 @@ are tentative until confirmed; refresh them each quarter.
 
 ## Open items
 
-Anthropic / Telegram keys · confirm the 10 validation stocks
-(`config.VALIDATION_STOCKS`) before tuning · $ risk per trade and max daily
-loss (`config.RISK_PER_TRADE`, `config.MAX_DAILY_LOSS`) · TradingView chart
-match (Day 1) and 50-trade chart review (Day 6).
+Anthropic / Telegram keys · TradingView chart match (Day 1, zones printed,
+awaiting trader comparison) and 50-trade chart review (Day 6).
+
+Confirmed Oct 9: validation stocks stay at the current 10
+(`config.VALIDATION_STOCKS`) · $ risk per trade $100 and max daily loss $300
+(`config.RISK_PER_TRADE`, `config.MAX_DAILY_LOSS`).
