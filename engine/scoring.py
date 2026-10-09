@@ -34,12 +34,27 @@ def load_weights(path: str = config.ZONE_WEIGHTS_PATH) -> dict:
     return {**defaults, **learned, "source": str(p)}
 
 
+def raw_to_score(raw, weights: dict):
+    """Map raw quality (w_s * strength - w_b * break risk) to the 0-100 score.
+
+    With learned weights the score is the raw value's percentile among TRAIN
+    touches (80 = better than 80% of training zones), so the bands are always
+    populated. Without them (config defaults) it is the raw value clipped.
+    Accepts a float or an array.
+    """
+    import numpy as np
+    q = weights.get("raw_quantiles")
+    if q:
+        return np.interp(raw, q, np.linspace(0.0, 100.0, len(q)))
+    return np.clip(raw, 0.0, 100.0)
+
+
 def zone_score(strength: float, break_risk: float, w_s: float | None = None, w_b: float | None = None) -> float:
-    """Score shown on charts: w_s * strength - w_b * break risk, clipped to 0..100."""
+    """Score shown on charts: percentile of w_s * strength - w_b * break risk (see raw_to_score)."""
     w = load_weights()
     w_s = w["w_s"] if w_s is None else w_s
     w_b = w["w_b"] if w_b is None else w_b
-    return max(0.0, min(100.0, w_s * strength - w_b * break_risk))
+    return float(raw_to_score(w_s * strength - w_b * break_risk, w))
 
 
 def score_band(score: float) -> str:
