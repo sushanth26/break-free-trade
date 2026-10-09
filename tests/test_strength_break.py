@@ -1,6 +1,7 @@
 import pandas as pd
 import pytest
 
+import config
 from engine.break_risk import break_factors, break_risk_score, count_tests, zone_side
 from engine.scoring import score_band, zone_score
 from engine.strength import strength_factors, strength_score
@@ -29,7 +30,8 @@ def test_more_confluence_scores_higher():
     bars = random_bars(days=2, seed=1)
     weak = strength_factors(_zone(bars, kinds=("high",)), bars, 0.5, 1.0)
     strong = strength_factors(_zone(bars, tfs=("5m", "1h")), bars, 0.5, 1.0, prior_levels=(100.0,))
-    assert strength_score(strong) > strength_score(weak)
+    w = config.STRENGTH_WEIGHTS
+    assert strength_score(strong, weights=w) > strength_score(weak, weights=w)
 
 
 def test_break_factors_and_tests_count():
@@ -39,12 +41,15 @@ def test_break_factors_and_tests_count():
     f = break_factors(z, "support", bars, atr=0.3, regime="bearish", news_against=True)
     assert f["regime_against"] == 1.0 and f["news_against"] == 1.0
     calm = dict(f, regime_against=0.0, news_against=0.0)
-    assert break_risk_score(f) > break_risk_score(calm)
+    w = config.BREAK_WEIGHTS
+    assert break_risk_score(f, weights=w) > break_risk_score(calm, weights=w)
     assert count_tests(z, bars) >= 1
     assert zone_side(z, z.top + 1) == "support"
 
 
 def test_zone_score_and_bands():
-    assert zone_score(90, 5, 1.0, 1.0) == 85 and score_band(85) == "strong"
-    assert zone_score(40, 60, 1.0, 1.0) == 0 and score_band(0) == "weak"
+    # no raw_quantiles -> raw_to_score falls back to a plain 0-100 clip (default-config behaviour)
+    defaults = {"w_s": 1.0, "w_b": 1.0}
+    assert zone_score(90, 5, 1.0, 1.0, weights=defaults) == 85 and score_band(85) == "strong"
+    assert zone_score(40, 60, 1.0, 1.0, weights=defaults) == 0 and score_band(0) == "weak"
     assert score_band(60) == "medium"

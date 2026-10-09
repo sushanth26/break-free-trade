@@ -49,9 +49,10 @@ def raw_to_score(raw, weights: dict):
     return np.clip(raw, 0.0, 100.0)
 
 
-def zone_score(strength: float, break_risk: float, w_s: float | None = None, w_b: float | None = None) -> float:
+def zone_score(strength: float, break_risk: float, w_s: float | None = None, w_b: float | None = None,
+               weights: dict | None = None) -> float:
     """Score shown on charts: percentile of w_s * strength - w_b * break risk (see raw_to_score)."""
-    w = load_weights()
+    w = load_weights() if weights is None else weights
     w_s = w["w_s"] if w_s is None else w_s
     w_b = w["w_b"] if w_b is None else w_b
     return float(raw_to_score(w_s * strength - w_b * break_risk, w))

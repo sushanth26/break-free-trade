@@ -3,6 +3,7 @@
   python scripts/run_zone_backtest.py --jobs 8            # all configs, build stocks
   python scripts/run_zone_backtest.py --quick              # 1 combo x 18 settings, for a smoke run
   python scripts/run_zone_backtest.py --reuse              # re-learn weights + Day 3 gate from saved touches
+  python scripts/run_zone_backtest.py --reuse --config "15m+1h|p5|w3|s2"   # gate + weights on a chosen config
 
 Writes reports/zone_touches.parquet, reports/zone_leaderboard.csv,
 models/zone_weights.json (learned on TRAIN touches of the best config).
@@ -40,6 +41,9 @@ def main():
     ap.add_argument("--out", default="reports")
     ap.add_argument("--reuse", action="store_true",
                     help="skip the grid: reuse zone_touches.parquet + zone_leaderboard.csv from --out")
+    ap.add_argument("--config", default=None,
+                    help="run the gate + learn weights on this config id instead of the leaderboard's top pick "
+                         "(e.g. '15m+1h|p5|w3|s2'); must be present in the saved touches")
     args = ap.parse_args()
 
     out = Path(args.out)
@@ -64,7 +68,12 @@ def main():
     print("\nBest per timeframe combo")
     print(by_tf[["config", "touches", "hold_rate", "reaction_atr"]].to_string(float_format=lambda x: f"{x:.2f}"))
 
-    best = board.iloc[0]["config"]
+    if args.config:
+        if args.config not in set(board["config"]):
+            raise SystemExit(f"--config {args.config!r} not found in {out}/zone_leaderboard.csv")
+        best = args.config
+    else:
+        best = board.iloc[0]["config"]
     train, _ = split_touches(touches[touches["config"] == best])   # out-of-sample stays untouched until Day 6
     gate = day3_gate(train)
     print(f"\nDay 3 gate — {best}: weights fit on {gate['n_fit']} train touches before "
