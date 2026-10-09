@@ -55,10 +55,18 @@ Outputs: `reports/` (leaderboards, touches, trades, robustness report),
 - **Live data.** Polling Webull bars 2 s after each bar close is the default; the MQTT tick stream (`data/stream.py`) is wired but its message fields must be verified on the first live run.
 - **News in backtests.** Catalyst = any ticker headline in the last 2 hours. News direction needs judged headlines (a `bias` column); without them news never counts as "against".
 
+## Calendars
+
+`data/calendars/economic.csv`: CPI and NFP (08:30 ET) and FOMC decisions
+(14:00 ET), Oct 2025 – Dec 2026, including the dates moved by the 2025 and
+early-2026 government shutdowns (no October 2025 CPI was published).
+`data/calendars/earnings.csv`: report dates for the 12 stocks, Oct 2025 – Mar
+2027, from Robinhood; all report after the close (`amc`). Dates after today
+are tentative until confirmed; refresh them each quarter.
+
 ## Open items
 
-Webull / Alpaca / Anthropic / Telegram keys · 10 more validation stocks
+Anthropic / Telegram keys · confirm the 10 validation stocks
 (`config.VALIDATION_STOCKS`) before tuning · $ risk per trade and max daily
-loss (`config.RISK_PER_TRADE`, `config.MAX_DAILY_LOSS`) · economic and
-earnings calendars (`data/calendars/*.csv`, headers only) · TradingView chart
+loss (`config.RISK_PER_TRADE`, `config.MAX_DAILY_LOSS`) · TradingView chart
 match (Day 1) and 50-trade chart review (Day 6).
