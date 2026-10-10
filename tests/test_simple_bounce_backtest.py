@@ -43,6 +43,7 @@ def test_summarize_and_groupers():
 def test_save_chart_review(tmp_path):
     trades = pd.DataFrame([
         {"symbol": "A", "direction": "long", "entry_time": pd.Timestamp(f"2026-01-0{i}", tz="America/New_York"),
+         "zone_bottom": 99.0, "zone_top": 99.5,
          "entry": 100.0, "stop": 99.0, "target": 102.0, "exit_time": pd.Timestamp(f"2026-01-0{i}", tz="America/New_York"),
          "exit_reason": "target hit", "r": 2.0, "score": 70} for i in range(1, 6)
     ])

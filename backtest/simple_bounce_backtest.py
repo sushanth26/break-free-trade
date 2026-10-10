@@ -32,7 +32,8 @@ from engine.simple_bounce import ENTRY, TOUCH, SimpleBounceTracker, plan_simple_
 from engine.strength import strength_factors, strength_score
 
 TRADE_COLUMNS = ["symbol", "direction", "entry_time", "exit_time", "entry", "stop", "target", "shares",
-                 "r_to_target", "win", "r", "pnl", "exit_reason", "score", "touched_only"]
+                 "r_to_target", "win", "r", "pnl", "exit_reason", "score", "touched_only",
+                 "zone_bottom", "zone_top"]
 SKIP_COLUMNS = ["symbol", "time", "direction", "reason"]
 
 
@@ -63,6 +64,8 @@ class _Position:
     entry_time: pd.Timestamp
     score: float
     commission_in: float
+    zone_bottom: float
+    zone_top: float
 
 
 def _zone_score(zone, side, hist, row, rvol, weights) -> float:
@@ -150,7 +153,8 @@ def simulate(datas: dict[str, SymbolData], weights: dict, start, end,
                               "exit_time": now, "entry": pos.entry, "stop": pos.stop, "target": pos.target,
                               "shares": pos.shares, "r_to_target": r_to_target,
                               "win": exit_reason == "target hit", "r": r, "pnl": pnl, "exit_reason": exit_reason,
-                              "score": pos.score, "touched_only": False})
+                              "score": pos.score, "touched_only": False,
+                              "zone_bottom": pos.zone_bottom, "zone_top": pos.zone_top})
                 positions[s] = None
                 pos = None
 
@@ -180,7 +184,7 @@ def simulate(datas: dict[str, SymbolData], weights: dict, start, end,
                 side = "support" if u.direction == "long" else "resistance"
                 score = _zone_score(u.zone, side, hist, row, rvol_by_sym[s].iloc[: i + 1], weights)
                 positions[s] = _Position(s, u.direction, fill_px, plan["stop"], plan["target"], shares,
-                                        now, score, fills.commission(shares))
+                                        now, score, fills.commission(shares), u.zone.bottom, u.zone.top)
                 break   # one new position per symbol per bar
 
     for s, pos in positions.items():
@@ -193,7 +197,8 @@ def simulate(datas: dict[str, SymbolData], weights: dict, start, end,
             trades.append({"symbol": s, "direction": pos.direction, "entry_time": pos.entry_time,
                           "exit_time": last_t, "entry": pos.entry, "stop": pos.stop, "target": pos.target,
                           "shares": pos.shares, "r_to_target": float("nan"), "win": False, "r": r, "pnl": pnl,
-                          "exit_reason": "end of data", "score": pos.score, "touched_only": False})
+                          "exit_reason": "end of data", "score": pos.score, "touched_only": False,
+                          "zone_bottom": pos.zone_bottom, "zone_top": pos.zone_top})
 
     trades_df = pd.DataFrame(trades) if trades else pd.DataFrame(columns=TRADE_COLUMNS)
     skipped_df = pd.DataFrame(skipped) if skipped else pd.DataFrame(columns=SKIP_COLUMNS)
@@ -239,7 +244,8 @@ def save_chart_review(trades: pd.DataFrame, path: str, n: int = 20, seed: int = 
         rng = np.random.default_rng(seed)
         idx = rng.choice(trades.index, size=n, replace=False)
         sample = trades.loc[sorted(idx)]
-    cols = ["symbol", "direction", "entry_time", "entry", "stop", "target", "exit_time", "exit_reason", "r", "score"]
+    cols = ["symbol", "direction", "entry_time", "zone_bottom", "zone_top", "entry", "stop", "target",
+           "exit_time", "exit_reason", "r", "score"]
     out = sample[cols].sort_values("entry_time")
     out.to_csv(path, index=False)
     return out
