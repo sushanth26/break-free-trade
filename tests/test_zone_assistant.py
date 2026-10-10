@@ -154,3 +154,37 @@ def test_outcome_tracker_has_no_lookahead():
     cut = OutcomeTracker(direction="long", zone=Z, next_zone=None)
     res_cut = [cut.step(b, 1.0, "10:0{}".format(i)) for i, b in enumerate(bars_seq)]
     assert res_full[: len(bars_seq)] == res_cut
+
+
+def test_label_stays_frozen_across_an_episode_even_as_price_crosses_other_zones():
+    """The tracker is keyed on the zone's own bounds, a stable id -- the label passed to
+    step() each bar (whatever label_zones currently computes, relative to CURRENT price)
+    must NOT change what an in-progress episode's alerts say, or "broke S1" could end up
+    naming a totally different physical zone than the "at S1" alert that started it."""
+    t = ZoneWatchTracker(key=(Z.bottom, Z.top))
+    atr = 1.0
+    out1 = t.step("MRVL", "S1", Z, 84.0, bar(100.4, 100.5, 100.3, 100.4), prev_close=101.0, atr=atr)
+    assert [a.stage for a in out1] == [APPROACHING] and out1[0].label == "S1"
+
+    # price has since moved such that THIS zone would now be relabelled "S2" by a fresh
+    # label_zones() call (e.g. a nearer zone appeared below current price) -- step() is
+    # called with that new label, but the episode must keep the one it started with
+    out2 = t.step("MRVL", "S2", Z, 84.0, bar(100.3, 100.4, 99.6, 99.9), prev_close=100.4, atr=atr)
+    assert [a.stage for a in out2] == [AT_ZONE] and out2[0].label == "S1"
+
+    out3 = t.step("MRVL", "S2", Z, 84.0, bar(99.9, 100.6, 99.8, 100.5), prev_close=99.9, atr=atr)
+    assert [a.stage for a in out3] == [RECLAIMED] and out3[0].label == "S1"
+
+
+def test_approaching_needs_80_but_at_zone_only_needs_50():
+    t = ZoneWatchTracker(key=(Z.bottom, Z.top))
+    out = t.step("MRVL", "S1", Z, 60.0, bar(100.4, 100.5, 100.3, 100.4), prev_close=101.0, atr=1.0)
+    assert out == [] and t.stage == "idle"           # score 60 < 80 -> no approaching alert
+    out2 = t.step("MRVL", "S1", Z, 60.0, bar(100.1, 100.3, 99.6, 99.9), prev_close=100.4, atr=1.0)
+    assert [a.stage for a in out2] == [AT_ZONE]       # score 60 >= 50 -> at-zone still fires
+
+
+def test_low_score_zone_never_alerts():
+    t = ZoneWatchTracker(key=(Z.bottom, Z.top))
+    out = t.step("MRVL", "S1", Z, 35.0, bar(100.1, 100.3, 99.6, 99.9), prev_close=101.0, atr=1.0)
+    assert out == [] and t.stage == "idle"

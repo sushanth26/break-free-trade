@@ -18,18 +18,26 @@ import pandas as pd
 
 import config
 from alerts.telegram import Telegram
-from data.base import regular_hours
+from data.base import normalize_bars, regular_hours
 from data.csv_provider import CsvProvider
 from live.scheduler import next_bar_close
 from live.store import Store
 from live.zone_assistant_runner import ZoneAssistantRunner, morning_sheet
 
 
-def load_history(symbols, provider="alpaca", end=None):
-    src = CsvProvider(config.CACHE_DIR, cache_provider=provider)
+def load_history(symbols, provider="alpaca", end=None, use_archive=True):
+    """Long history from the SIP cache + recent days from the Webull archive --
+    the same source live polling uses -- so replaying a recent day sees what
+    the live feed actually saw, not Alpaca's SIP data (which has its own
+    recency restriction and isn't what the live system runs on anyway."""
+    cache = CsvProvider(config.CACHE_DIR, cache_provider=provider)
+    archive = CsvProvider(config.ARCHIVE_DIR) if use_archive else None
     out = {}
     for s in symbols:
-        bars, daily = src.get_bars(s, "5m"), src.get_bars(s, "D")
+        bars = cache.get_bars(s, "5m")
+        if archive is not None:
+            bars = normalize_bars(pd.concat([bars, archive.get_bars(s, "5m")]))
+        daily = cache.get_bars(s, "D")
         if end is not None:
             bars, daily = bars[bars.index < end], daily[daily.index < end]
         out[s] = (bars, daily)
@@ -70,10 +78,10 @@ def run_replay(args):
     morning_now = day + pd.Timedelta(hours=9, minutes=15)
     print_and_save_morning_sheet(symbols, history, morning_now)
 
-    src = CsvProvider(config.CACHE_DIR, cache_provider="alpaca")
+    archive = CsvProvider(config.ARCHIVE_DIR)   # recent days, same source as live (Webull)
     day_bars = {}
     for s in symbols:
-        b = regular_hours(src.get_bars(s, "5m"))
+        b = regular_hours(archive.get_bars(s, "5m"))
         day_bars[s] = b[b.index.normalize() == day]
     times = sorted({t for s in symbols for t in day_bars[s].index})
     print(f"\nreplaying {len(times)} bars for {args.replay}...")

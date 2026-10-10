@@ -62,9 +62,12 @@ def zone_at(symbol: str, label: str, zone: Zone) -> str:
 
 
 def zone_reclaimed(symbol: str, label: str, close: float, wick: float, direction: str = "long") -> str:
-    wick_label = "wick low" if direction == "long" else "wick high"
-    return f"🟢 {symbol} reclaimed {label} · close {close:.2f} · {wick_label} {wick:.2f}"
+    if direction == "long":
+        return f"🟢 {symbol} reclaimed {label} · close {close:.2f} · wick low {wick:.2f}"
+    return f"🟢 {symbol} rejected at {label} · close {close:.2f} · wick high {wick:.2f}"
 
 
-def zone_broken(symbol: str, label: str, close: float) -> str:
-    return f"🔴 {symbol} broke {label} · close {close:.2f}"
+def zone_broken(symbol: str, label: str, close: float, direction: str = "long") -> str:
+    if direction == "long":
+        return f"🔴 {symbol} broke {label} · close {close:.2f}"
+    return f"🔴 {symbol} broke above {label} · close {close:.2f}"

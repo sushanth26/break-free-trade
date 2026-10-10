@@ -48,7 +48,7 @@ class ZoneAssistantRunner:
         self.state: dict[str, SymbolState] = {}
         for s in symbols:
             bars, daily = history[s]
-            zs = LiveZoneSource(s, _SETTINGS)
+            zs = LiveZoneSource(s, _SETTINGS, session=config.ZONE_SESSION)
             zs.update(bars, daily)
             self.state[s] = SymbolState(s, bars, daily, zs)
 
@@ -122,7 +122,8 @@ class ZoneAssistantRunner:
             direction = self.state[a.symbol].trackers[(a.zone.bottom, a.zone.top)].direction or "long"
             return fmt.zone_reclaimed(a.symbol, a.label, a.text_args["close"], a.text_args["wick"], direction)
         if a.stage == BROKEN:
-            return fmt.zone_broken(a.symbol, a.label, a.text_args["close"])
+            direction = self.state[a.symbol].trackers[(a.zone.bottom, a.zone.top)].direction or "long"
+            return fmt.zone_broken(a.symbol, a.label, a.text_args["close"], direction)
         return fmt.info(f"{a.symbol} {a.stage} {a.label}")
 
 
@@ -142,7 +143,7 @@ def morning_sheet(symbols: list[str], history: dict[str, tuple[pd.DataFrame, pd.
     out = {}
     for s in symbols:
         bars, daily = history[s]
-        zs = LiveZoneSource(s, _SETTINGS)
+        zs = LiveZoneSource(s, _SETTINGS, session=config.ZONE_SESSION)
         zs.update(bars, daily)
         reg = regular_hours(bars)
         win = reg.iloc[-max(zs.window_bars(), 400):]

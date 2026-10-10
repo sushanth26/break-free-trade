@@ -78,14 +78,21 @@ class ZoneAlert:
 
 @dataclass
 class ZoneWatchTracker:
-    """One instance per physical zone (by its bottom/top). Tracks the
-    approach -> at-zone -> reclaim/break cycle, with a cool-down after a break.
+    """One instance per physical zone (by its bottom/top, a stable id -- never
+    the per-bar label, which is just "nearest zone below/above current price"
+    and can point at a different physical zone bar to bar as price moves).
+    Tracks the approach -> at-zone -> reclaim/break cycle, with a cool-down
+    after a break. The label shown in every alert is frozen for the zone's
+    episode (idle -> approaching/at_zone -> reclaim or break) at the moment
+    that episode starts, so later alerts about the SAME zone keep the SAME
+    label even if other zones' labels have since shifted around it.
     """
     key: tuple[float, float]
     stage: str = "idle"                 # idle | approaching | at_zone | cooldown
     direction: str | None = None        # "long" (visited as support) or "short" (as resistance), set at at_zone
     wick_extreme: float = field(default=float("nan"))   # lowest low (long) / highest high (short) seen in-zone
     cooldown_left: int = 0
+    label: str | None = None            # frozen for the current episode
 
     def step(self, symbol: str, label: str, zone: Zone, score: float, bar: dict, prev_close: float,
             atr: float) -> list[ZoneAlert]:
@@ -97,21 +104,25 @@ class ZoneWatchTracker:
             else:
                 return out
 
+        if self.stage == "idle":
+            self.label = label           # fresh episode starting (or about to) -> pick up the current label once
+
         o, h, l, c = bar["open"], bar["high"], bar["low"], bar["close"]
         near_dist = min(abs(c - zone.top), abs(c - zone.bottom)) / atr
 
         if self.stage == "idle":
-            if near_dist <= config.ZONE_ASSISTANT_APPROACH_ATR and score >= 50 and not zone.contains(c):
+            if (near_dist <= config.ZONE_ASSISTANT_APPROACH_ATR and score >= config.ZONE_ASSISTANT_APPROACH_MIN_SCORE
+               and not zone.contains(c)):
                 self.stage = "approaching"
-                out.append(ZoneAlert(APPROACHING, symbol, label, zone, {"score": score}))
+                out.append(ZoneAlert(APPROACHING, symbol, self.label, zone, {"score": score}))
 
         if self.stage in ("idle", "approaching"):
             touched = l <= zone.top and h >= zone.bottom
-            if touched:
+            if touched and score >= config.ZONE_ASSISTANT_ALERT_MIN_SCORE:
                 self.direction = "long" if prev_close > zone.top else "short"
                 self.stage = "at_zone"
                 self.wick_extreme = l if self.direction == "long" else h
-                out.append(ZoneAlert(AT_ZONE, symbol, label, zone, {}))
+                out.append(ZoneAlert(AT_ZONE, symbol, self.label, zone, {}))
                 return out
 
         if self.stage == "at_zone":
@@ -120,19 +131,19 @@ class ZoneWatchTracker:
                 if c < zone.bottom - config.ZONE_ASSISTANT_BREAK_ATR * atr:
                     self.stage = "cooldown"
                     self.cooldown_left = config.ZONE_ASSISTANT_COOLDOWN_BARS
-                    out.append(ZoneAlert(BROKEN, symbol, label, zone, {"close": c}))
+                    out.append(ZoneAlert(BROKEN, symbol, self.label, zone, {"close": c}))
                 elif c > zone.top:
                     self.stage = "idle"
-                    out.append(ZoneAlert(RECLAIMED, symbol, label, zone, {"close": c, "wick": self.wick_extreme}))
+                    out.append(ZoneAlert(RECLAIMED, symbol, self.label, zone, {"close": c, "wick": self.wick_extreme}))
             else:
                 self.wick_extreme = max(self.wick_extreme, h)
                 if c > zone.top + config.ZONE_ASSISTANT_BREAK_ATR * atr:
                     self.stage = "cooldown"
                     self.cooldown_left = config.ZONE_ASSISTANT_COOLDOWN_BARS
-                    out.append(ZoneAlert(BROKEN, symbol, label, zone, {"close": c}))
+                    out.append(ZoneAlert(BROKEN, symbol, self.label, zone, {"close": c}))
                 elif c < zone.bottom:
                     self.stage = "idle"
-                    out.append(ZoneAlert(RECLAIMED, symbol, label, zone, {"close": c, "wick": self.wick_extreme}))
+                    out.append(ZoneAlert(RECLAIMED, symbol, self.label, zone, {"close": c, "wick": self.wick_extreme}))
         return out
 
 
