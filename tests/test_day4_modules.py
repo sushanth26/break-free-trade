@@ -37,15 +37,39 @@ def test_long_bounce_confirms():
     assert ups[1].entry_price == 100.25 and ups[2].entry_price == 100.3
 
 
-def test_false_bounce_fails_and_chasing_blocked():
+def test_false_bounce_fails():
     t = BounceTracker(Z, "long")
     ups = run(t, [bar(100.1, 100.3, 99.6, 100.25), bar(100.2, 100.25, 99.9, 99.95)], 101)
     assert [u.stage for u in ups] == [REJECTION, FAIL] and "false bounce" in ups[1].reason
-    t2 = BounceTracker(Z, "long")
-    # rejection candle already 0.6 ATR above the zone → its high is too far to chase
-    ups = run(t2, [bar(100.5, 100.6, 99.8, 100.55), bar(100.6, 101.6, 100.5, 101.55)], 101)
-    assert ups[0].stage == REJECTION and not ups[0].entry_ok
+
+
+def test_chasing_blocks_confirmed_entry():
+    """Confirming bar's own close has run well past the planned entry (rej_high) -> chasing."""
+    t = BounceTracker(Z, "long")
+    ups = run(t, [bar(100.1, 100.3, 99.6, 100.25),     # rejection: rej_high 100.3, entry not chasing yet
+                  bar(100.3, 101.0, 99.7, 100.9)], 101)  # confirms, but closes 0.6 ATR past rej_high (> 0.5 cap)
+    assert ups[0].entry_ok
     assert ups[1].stage == CONFIRMED and not ups[1].entry_ok
+    assert "chasing" in ups[1].reason
+
+
+def test_entry_too_far_from_zone_blocks_early_entry():
+    """Rejection candle itself runs 1.8 ATR above the zone -- past MAX_ENTRY_FROM_ZONE_ATR (1.5),
+    even though the alert bar's own close is (trivially) not chasing its own entry."""
+    t = BounceTracker(Z, "long")
+    ups = run(t, [bar(101.0, 101.8, 99.6, 101.8)], 101)
+    assert ups[0].stage == REJECTION and not ups[0].entry_ok
+    assert "too far from zone" in ups[0].reason
+
+
+def test_bounce_entry_checks_have_no_lookahead():
+    """The update at bar k is identical whether or not further bars follow it."""
+    bars = [bar(100.1, 100.3, 99.6, 100.25), bar(100.3, 101.0, 99.7, 100.9)]
+    t_full = BounceTracker(Z, "long")
+    full = run(t_full, bars + [bar(100.9, 102.5, 100.8, 102.4)], 101)
+    t_cut = BounceTracker(Z, "long")
+    cut = run(t_cut, bars, 101)
+    assert full[1] == cut[1]
 
 
 def test_short_bounce_is_mirror():
