@@ -2,7 +2,8 @@ import pandas as pd
 import pytest
 
 from backtest.fills import FillModel
-from backtest.simple_bounce_backtest import by_band, by_direction, by_symbol, save_chart_review, simulate, summarize
+from backtest.simple_bounce_backtest import (by_band, by_direction, by_symbol, mfe_diagnostic, mfe_summary,
+                                             save_chart_review, simulate, summarize)
 from backtest.zone_backtest import SymbolData
 from tests.synthetic import daily_from, random_bars
 
@@ -74,3 +75,25 @@ def test_simulate_adverse_selection_matches_base_run():
     base, _ = simulate(datas, WEIGHTS, start, end, FillModel())
     adverse, _ = simulate(datas, WEIGHTS, start, end, FillModel(adverse_selection=True))
     pd.testing.assert_frame_equal(base.reset_index(drop=True), adverse.reset_index(drop=True))
+
+
+def test_mfe_diagnostic_stops_counting_on_the_stop_bar():
+    ET = "America/New_York"
+    idx = pd.date_range("2026-01-05 09:30", "2026-01-05 15:55", freq="5min", tz=ET)
+    bars = pd.DataFrame({"open": 100.0, "high": 100.1, "low": 99.9, "close": 100.0, "volume": 1000.0}, index=idx)
+    entry_time = idx[0]
+    bars.loc[idx[1], ["high", "low", "close"]] = [100.6, 100.3, 100.5]     # +0.6R
+    bars.loc[idx[2], ["high", "low", "close"]] = [101.2, 100.8, 101.1]    # +1.2R
+    bars.loc[idx[3], ["high", "low", "close"]] = [101.5, 98.5, 99.0]      # stop (99.0) hit -- doesn't count the 1.5R high
+    d = SymbolData("X", bars, daily_from(bars))
+
+    trades = pd.DataFrame([{"symbol": "X", "direction": "long", "entry_time": entry_time,
+                           "entry": 100.0, "stop": 99.0, "score": 70}])
+    mfe = mfe_diagnostic(trades, {"X": d})
+    assert mfe.loc[0, "mfe_r"] == pytest.approx(1.2)
+    assert bool(mfe.loc[0, "stopped"])
+    assert mfe.loc[0, "reached_1R"] and not mfe.loc[0, "reached_1.5R"]
+
+    summ = mfe_summary(mfe).set_index("threshold")
+    assert summ.loc["1R", "share_reached"] == 1.0
+    assert summ.loc["1.5R", "share_reached"] == 0.0

@@ -205,6 +205,59 @@ def simulate(datas: dict[str, SymbolData], weights: dict, start, end,
     return trades_df, skipped_df
 
 
+# ------------------------------------------------------------------ diagnostics (read-only, no tuning)
+
+def mfe_diagnostic(trades: pd.DataFrame, datas: dict[str, SymbolData],
+                   thresholds=(0.5, 1.0, 1.5, 2.0, 3.0)) -> pd.DataFrame:
+    """Per trade: the max favorable move in R reached before the stop or the
+    15:55 exit (never the target -- this is independent of any target rule).
+
+    Same within-bar convention as the rest of the backtest: the stop is
+    checked before any favorable move on that bar counts (a stop-out bar
+    contributes nothing to MFE).
+    """
+    rows = []
+    for tr in trades.itertuples():
+        bars = regular_hours(datas[tr.symbol].bars)
+        day = tr.entry_time.normalize()
+        window = bars[(bars.index >= tr.entry_time) & (bars.index.normalize() == day)]
+        long = tr.direction == "long"
+        risk = abs(tr.entry - tr.stop)
+        mfe_r, stopped = 0.0, False
+        for t, row in window.iterrows():
+            stop_hit = row["low"] <= tr.stop if long else row["high"] >= tr.stop
+            if stop_hit:
+                stopped = True
+                break
+            move = (row["high"] - tr.entry) if long else (tr.entry - row["low"])
+            mfe_r = max(mfe_r, move / risk)
+            if (t + pd.Timedelta("5min")).strftime("%H:%M") >= config.EOD_EXIT:
+                break
+        rows.append({"symbol": tr.symbol, "direction": tr.direction, "score": tr.score,
+                    "mfe_r": mfe_r, "stopped": stopped,
+                    **{f"reached_{th:g}R": mfe_r >= th for th in thresholds}})
+    return pd.DataFrame(rows)
+
+
+def mfe_summary(mfe: pd.DataFrame, thresholds=(0.5, 1.0, 1.5, 2.0, 3.0)) -> pd.DataFrame:
+    cols = [f"reached_{th:g}R" for th in thresholds]
+    return pd.DataFrame({"threshold": [f"{th:g}R" for th in thresholds],
+                         "share_reached": [mfe[c].mean() for c in cols],
+                         "n_reached": [int(mfe[c].sum()) for c in cols]})
+
+
+def mfe_summary_by_band(mfe: pd.DataFrame, thresholds=(0.5, 1.0, 1.5, 2.0, 3.0)) -> pd.DataFrame:
+    m = mfe.copy()
+    m["band"] = pd.cut(m["score"], [-1, 49.999, 79.999, 101], labels=["<50", "50-79", "80+"])
+    out = []
+    for band, g in m.groupby("band", observed=False):
+        s = mfe_summary(g, thresholds)
+        s.insert(0, "band", band)
+        s.insert(2, "n_trades", len(g))
+        out.append(s)
+    return pd.concat(out, ignore_index=True)
+
+
 # ------------------------------------------------------------------ reporting
 
 def summarize(trades: pd.DataFrame) -> dict:
