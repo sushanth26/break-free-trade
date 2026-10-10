@@ -243,3 +243,12 @@ ZONE_ASSISTANT_MORNING_TIME = "09:15"
 # Day 3 score-band hold rates (from the zone-quality backtest), shown on every approaching alert
 # and in the morning sheet.
 ZONE_HOLD_RATE_BY_BAND = {"80+": 0.85, "50-79": 0.77, "<50": 0.64}
+# "regular" (09:30-16:00) or "extended" (04:00-20:00 -- as far as our data goes; the trader's
+# TradingView 30m chart includes true overnight bars we have no data source for at all).
+# Checked 2026-10-09 10:00 ET against the trader's observed levels: regular matched --
+# MRVL R1 276.50-280.00 (observed 276.8-280), DELL R1 585.00-587.19 (observed ~586), DELL S1
+# 567.47-570.72 (observed 570-572); extended missed all three. BE's observed 271-273 support
+# wasn't captured by either setting -- not chased further, per instruction not to force a match.
+ZONE_SESSION = "regular"
+ZONE_ASSISTANT_APPROACH_MIN_SCORE = 80   # noise control: approaching only for strong zones
+ZONE_ASSISTANT_ALERT_MIN_SCORE = 50      # at-zone / reclaim / break need at least this score

@@ -73,6 +73,11 @@ def regular_hours(bars: pd.DataFrame) -> pd.DataFrame:
     return bars[session_mask(bars.index, "regular").values]
 
 
+def extended_hours(bars: pd.DataFrame) -> pd.DataFrame:
+    """04:00-20:00 -- as far as our data goes; not a true overnight session."""
+    return bars[session_mask(bars.index, "extended").values]
+
+
 def resample(bars: pd.DataFrame, tf: str, regular_only: bool = True) -> pd.DataFrame:
     """Build higher-timeframe bars from lower ones.
 

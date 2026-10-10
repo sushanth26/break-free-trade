@@ -20,7 +20,7 @@ import config
 from backtest.labels import ZoneTimeline, find_touches
 from backtest.split import is_oos, is_train
 from config import ZoneConfig
-from data.base import regular_hours, resample, to_ts
+from data.base import extended_hours, regular_hours, resample, to_ts
 from engine.break_risk import scale_break
 from engine.features import compute_features
 from engine.profile import round_step
@@ -61,15 +61,20 @@ def config_id(combo: tuple[str, ...], cfg: ZoneConfig) -> str:
 
 
 def build_timeline(data: SymbolData, combo: tuple[str, ...], cfg: ZoneConfig,
-                   cache: dict | None = None) -> ZoneTimeline:
-    """Merged multi-timeframe zone sets over time (changes only at pivot confirmations)."""
+                   cache: dict | None = None, session: str = "regular") -> ZoneTimeline:
+    """Merged multi-timeframe zone sets over time (changes only at pivot confirmations).
+
+    ``session``: "regular" (09:30-16:00, the default everywhere this was already
+    used) or "extended" (04:00-20:00 -- as far as our data goes; a trader's
+    TradingView chart may show true overnight bars we don't have at all).
+    """
     cache = {} if cache is None else cache
-    reg = regular_hours(data.bars)
+    reg = regular_hours(data.bars) if session == "regular" else extended_hours(data.bars)
     histories = []
     for tf in combo:
-        key = (data.symbol, tf, cfg)
+        key = (data.symbol, tf, cfg, session)
         if key not in cache:
-            src = reg if tf == "5m" else data.daily if tf == "D" else resample(reg, tf)
+            src = reg if tf == "5m" else data.daily if tf == "D" else resample(reg, tf, regular_only=False)
             cache[key] = zone_history(src, tf, cfg)
         histories.append(cache[key])
     times = sorted({t for h in histories for t, _ in h})
