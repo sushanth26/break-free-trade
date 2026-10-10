@@ -26,17 +26,23 @@ from live.zone_assistant_runner import ZoneAssistantRunner, morning_sheet
 
 
 def load_history(symbols, provider="alpaca", end=None, use_archive=True):
-    """Long history from the SIP cache + recent days from the Webull archive --
-    the same source live polling uses -- so replaying a recent day sees what
-    the live feed actually saw, not Alpaca's SIP data (which has its own
-    recency restriction and isn't what the live system runs on anyway."""
+    """The SIP cache for everything it already covers, plus the Webull archive
+    ONLY for days the SIP cache doesn't have yet (today, or any other gap) --
+    the same source live polling uses for those days. The archive must never
+    override a day the SIP cache already has: Webull and Alpaca don't always
+    agree on a bar's exact OHLC, so blending them across the same historical
+    days would shift pivots/zones for reasons that have nothing to do with
+    "what did live actually see today"."""
     cache = CsvProvider(config.CACHE_DIR, cache_provider=provider)
     archive = CsvProvider(config.ARCHIVE_DIR) if use_archive else None
     out = {}
     for s in symbols:
         bars = cache.get_bars(s, "5m")
         if archive is not None:
-            bars = normalize_bars(pd.concat([bars, archive.get_bars(s, "5m")]))
+            cutoff = bars.index.normalize().max() if len(bars) else pd.Timestamp.min.tz_localize(config.TZ)
+            fresh = archive.get_bars(s, "5m")
+            fresh = fresh[fresh.index.normalize() > cutoff]
+            bars = normalize_bars(pd.concat([bars, fresh]))
         daily = cache.get_bars(s, "D")
         if end is not None:
             bars, daily = bars[bars.index < end], daily[daily.index < end]
