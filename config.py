@@ -227,3 +227,19 @@ SIMPLE_BREAK_ATR = 0.25             # close this far past the zone's far edge ca
 SIMPLE_MIN_T1_R = 1.5               # skip if the next opposing zone is closer than this
 SIMPLE_ENTRY_WINDOW = ("09:45", "15:30")
 SIMPLE_ZONE_WEIGHTS_PATH = "models/simple_zone_weights.json"
+
+# ---------------------------------------------------------------- zone assistant (alerts only)
+# Same 30m zone config and learned weights as the simple-bounce experiment -- this is the
+# live/replay alert layer on top of that already-scored zone set, never an order-placer.
+WATCHLIST = ("BE", "MRVL", "DELL", "MU", "NBIS", "SNDK", "COHR", "CRDO")
+ZONE_ASSISTANT_TIMEFRAME = SIMPLE_ZONE_TIMEFRAME
+ZONE_ASSISTANT_ZONE_CONFIG = SIMPLE_ZONE_CONFIG
+ZONE_ASSISTANT_WEIGHTS_PATH = SIMPLE_ZONE_WEIGHTS_PATH
+ZONE_ASSISTANT_MAX_DIST_ATR = 3.0       # only show/alert zones within this many ATR of price
+ZONE_ASSISTANT_APPROACH_ATR = 0.5       # "approaching" when price is this close to a zone edge
+ZONE_ASSISTANT_BREAK_ATR = 0.25         # alert-stage break: close this far through the zone
+ZONE_ASSISTANT_COOLDOWN_BARS = 12       # 1 hour of 5m bars of quiet after a break, before re-arming
+ZONE_ASSISTANT_MORNING_TIME = "09:15"
+# Day 3 score-band hold rates (from the zone-quality backtest), shown on every approaching alert
+# and in the morning sheet.
+ZONE_HOLD_RATE_BY_BAND = {"80+": 0.85, "50-79": 0.77, "<50": 0.64}

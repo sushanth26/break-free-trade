@@ -25,11 +25,8 @@ from backtest.fills import FillModel
 from backtest.zone_backtest import (SymbolData, build_timeline, day3_gate, learn_weights, run_config,
                                     save_weights, split_touches)
 from data.base import regular_hours, to_ts
-from engine.break_risk import break_factors, break_risk_score
-from engine.profile import round_step
-from engine.scoring import raw_to_score
 from engine.simple_bounce import ENTRY, TOUCH, SimpleBounceTracker, plan_simple_trade
-from engine.strength import strength_factors, strength_score
+from engine.zone_assistant import zone_score_from_bars as zone_score_at
 
 TRADE_COLUMNS = ["symbol", "direction", "entry_time", "exit_time", "entry", "stop", "target", "shares",
                  "r_to_target", "win", "r", "pnl", "exit_reason", "score", "touched_only",
@@ -66,16 +63,6 @@ class _Position:
     commission_in: float
     zone_bottom: float
     zone_top: float
-
-
-def zone_score_at(zone, side, hist, row, rvol, weights) -> float:
-    sf = strength_factors(zone, hist, row["atr"], round_step(row["close"]),
-                          (row["prev_high"], row["prev_low"], row["prev_close"]))
-    bf = break_factors(zone, side, hist, row["atr"], rvol, None, False)
-    s = strength_score(sf, weights["strength"])
-    b = break_risk_score(bf, weights["break"])
-    raw = weights["w_s"] * s - weights["w_b"] * b
-    return float(raw_to_score(raw, weights))
 
 
 def simulate(datas: dict[str, SymbolData], weights: dict, start, end,

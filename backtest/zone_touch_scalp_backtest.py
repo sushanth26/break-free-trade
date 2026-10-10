@@ -19,7 +19,7 @@ import pandas as pd
 
 import config
 from backtest.fills import FillModel
-from backtest.simple_bounce_backtest import zone_score_at
+from engine.zone_assistant import zone_score_from_bars as zone_score_at
 from backtest.zone_backtest import SymbolData, build_timeline
 from data.base import regular_hours, to_ts
 
