@@ -50,6 +50,7 @@ def make_handler(store: Store):
             self.send_response(200)
             self.send_header("Content-Type", CONTENT_TYPES.get(f.suffix, "application/octet-stream"))
             self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")   # never let the browser mask a fix with a stale copy
             self.end_headers()
             self.wfile.write(body)
 
