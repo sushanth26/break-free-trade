@@ -9,7 +9,7 @@ import config
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS events (time TEXT, symbol TEXT, kind TEXT, detail TEXT);
-CREATE TABLE IF NOT EXISTS alerts (time TEXT, symbol TEXT, kind TEXT, text TEXT, sent INTEGER);
+CREATE TABLE IF NOT EXISTS alerts (time TEXT, symbol TEXT, kind TEXT, text TEXT, sent INTEGER, score REAL);
 CREATE TABLE IF NOT EXISTS ai_calls (time TEXT, role TEXT, prompt_version TEXT, model TEXT, system TEXT,
     input TEXT, output TEXT, status TEXT, latency_s REAL, cost_usd REAL, action TEXT);
 CREATE TABLE IF NOT EXISTS trades (time TEXT, symbol TEXT, record TEXT);
@@ -36,9 +36,9 @@ class Store:
                         (str(ev.time), ev.symbol, ev.kind, json.dumps(ev.detail, default=str)))
         self.db.commit()
 
-    def alert(self, symbol: str, kind: str, text: str, sent: bool, time=None) -> int:
-        cur = self.db.execute("INSERT INTO alerts VALUES (?,?,?,?,?)",
-                              (str(time or self._now()), symbol, kind, text, int(sent)))
+    def alert(self, symbol: str, kind: str, text: str, sent: bool, time=None, score: float | None = None) -> int:
+        cur = self.db.execute("INSERT INTO alerts VALUES (?,?,?,?,?,?)",
+                              (str(time or self._now()), symbol, kind, text, int(sent), score))
         self.db.commit()
         return cur.lastrowid
 
@@ -63,14 +63,17 @@ class Store:
                         (str(time or self._now()), alert_id, symbol, outcome, max_move_atr, int(reached_next)))
         self.db.commit()
 
-    def latest_alert(self, symbol: str, kind: str | None = None) -> dict | None:
-        q, args = "SELECT rowid, time, symbol, kind, text FROM alerts WHERE symbol = ?", [symbol]
-        if kind:
+    def latest_alert(self, symbol: str, kind: str | tuple[str, ...] | None = None) -> dict | None:
+        q, args = "SELECT rowid, time, symbol, kind, text, score FROM alerts WHERE symbol = ?", [symbol]
+        if isinstance(kind, str):
             q += " AND kind = ?"
             args.append(kind)
+        elif kind:
+            q += f" AND kind IN ({','.join('?' * len(kind))})"
+            args += list(kind)
         q += " ORDER BY rowid DESC LIMIT 1"
         row = self.db.execute(q, args).fetchone()
-        return dict(zip(("id", "time", "symbol", "kind", "text"), row)) if row else None
+        return dict(zip(("id", "time", "symbol", "kind", "text", "score"), row)) if row else None
 
     def alert_outcome(self, alert_id: int) -> dict | None:
         row = self.db.execute("SELECT outcome, max_move_atr, reached_next FROM zone_outcomes WHERE alert_id = ?",
@@ -103,3 +106,30 @@ class Store:
     def journal_rows(self) -> list[dict]:
         cols = [d[1] for d in self.db.execute("PRAGMA table_info(journal)").fetchall()]
         return [dict(zip(cols, row)) for row in self.db.execute("SELECT * FROM journal ORDER BY id").fetchall()]
+
+    def actionable_alerts_with_outcomes(self) -> list[dict]:
+        """Every "at zone" / "reclaimed" alert, whether a journal entry took it, and its
+        auto-outcome (held/broke) if resolved -- for "alerts taken vs. their outcomes"."""
+        q = """
+        SELECT a.rowid, a.symbol, a.kind, a.score,
+               (SELECT COUNT(*) FROM journal j WHERE j.alert_id = a.rowid) AS taken,
+               o.outcome, o.max_move_atr, o.reached_next
+        FROM alerts a LEFT JOIN zone_outcomes o ON o.alert_id = a.rowid
+        WHERE a.kind IN ('zone_at_zone', 'zone_reclaimed')
+        ORDER BY a.rowid
+        """
+        cols = ("id", "symbol", "kind", "score", "taken", "outcome", "max_move_atr", "reached_next")
+        return [dict(zip(cols, row)) for row in self.db.execute(q).fetchall()]
+
+    def journal_rows_with_alerts(self) -> list[dict]:
+        """Journal rows plus their linked alert's kind/score (for the score-band /
+        alert-stage breakdowns) -- alert_kind/alert_score are None if unlinked."""
+        cols = [d[1] for d in self.db.execute("PRAGMA table_info(journal)").fetchall()]
+        q = (f"SELECT {','.join('j.' + c for c in cols)}, a.kind, a.score FROM journal j "
+            "LEFT JOIN alerts a ON a.rowid = j.alert_id ORDER BY j.id")
+        out = []
+        for row in self.db.execute(q).fetchall():
+            d = dict(zip(cols, row[:len(cols)]))
+            d["alert_kind"], d["alert_score"] = row[len(cols)], row[len(cols) + 1]
+            out.append(d)
+        return out

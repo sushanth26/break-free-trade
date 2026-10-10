@@ -52,9 +52,9 @@ class ZoneAssistantRunner:
             zs.update(bars, daily)
             self.state[s] = SymbolState(s, bars, daily, zs)
 
-    def _alert(self, symbol: str, kind: str, text: str, now) -> int:
+    def _alert(self, symbol: str, kind: str, text: str, now, score: float | None = None) -> int:
         ok = self.telegram.send(text)
-        return self.store.alert(symbol, kind, text, ok, now) if self.store else -1
+        return self.store.alert(symbol, kind, text, ok, now, score) if self.store else -1
 
     def _log_outcome(self, alert_id: int, symbol: str, now, res: dict):
         if not self.store:
@@ -106,7 +106,7 @@ class ZoneAssistantRunner:
                 tracker = st.trackers.setdefault(key, ZoneWatchTracker(key=key))
                 for a in tracker.step(s, lz.label, lz.zone, lz.score, bar, prev_close, atr):
                     text = self._format(a, lz.score)
-                    alert_id = self._alert(s, f"zone_{a.stage}", text, now)
+                    alert_id = self._alert(s, f"zone_{a.stage}", text, now, lz.score)
                     if a.stage == AT_ZONE:
                         next_zone = _next_opposing_zone(zones, lz.zone, tracker.direction)
                         st.outcomes[alert_id] = (OutcomeTracker(tracker.direction, lz.zone, next_zone), next_zone)
