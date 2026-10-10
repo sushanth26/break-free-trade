@@ -13,6 +13,11 @@ CREATE TABLE IF NOT EXISTS alerts (time TEXT, symbol TEXT, kind TEXT, text TEXT,
 CREATE TABLE IF NOT EXISTS ai_calls (time TEXT, role TEXT, prompt_version TEXT, model TEXT, system TEXT,
     input TEXT, output TEXT, status TEXT, latency_s REAL, cost_usd REAL, action TEXT);
 CREATE TABLE IF NOT EXISTS trades (time TEXT, symbol TEXT, record TEXT);
+CREATE TABLE IF NOT EXISTS zone_outcomes (time TEXT, alert_id INTEGER, symbol TEXT, outcome TEXT,
+    max_move_atr REAL, reached_next INTEGER);
+CREATE TABLE IF NOT EXISTS journal (id INTEGER PRIMARY KEY AUTOINCREMENT, time_opened TEXT, symbol TEXT,
+    direction TEXT, entry REAL, stop REAL, target REAL, alert_id INTEGER, note TEXT, status TEXT,
+    time_closed TEXT, exit_price REAL, exit_note TEXT, r REAL);
 """
 
 
@@ -31,9 +36,11 @@ class Store:
                         (str(ev.time), ev.symbol, ev.kind, json.dumps(ev.detail, default=str)))
         self.db.commit()
 
-    def alert(self, symbol: str, kind: str, text: str, sent: bool, time=None):
-        self.db.execute("INSERT INTO alerts VALUES (?,?,?,?,?)", (str(time or self._now()), symbol, kind, text, int(sent)))
+    def alert(self, symbol: str, kind: str, text: str, sent: bool, time=None) -> int:
+        cur = self.db.execute("INSERT INTO alerts VALUES (?,?,?,?,?)",
+                              (str(time or self._now()), symbol, kind, text, int(sent)))
         self.db.commit()
+        return cur.lastrowid
 
     def ai_call(self, rec: dict):
         self.db.execute("INSERT INTO ai_calls VALUES (?,?,?,?,?,?,?,?,?,?,?)",
@@ -47,3 +54,52 @@ class Store:
 
     def rows(self, table: str) -> list[tuple]:
         return self.db.execute(f"SELECT * FROM {table}").fetchall()
+
+    # ------------------------------------------------------------------ zone assistant
+
+    def zone_outcome(self, alert_id: int, symbol: str, outcome: str | None, max_move_atr: float,
+                    reached_next: bool, time=None):
+        self.db.execute("INSERT INTO zone_outcomes VALUES (?,?,?,?,?,?)",
+                        (str(time or self._now()), alert_id, symbol, outcome, max_move_atr, int(reached_next)))
+        self.db.commit()
+
+    def latest_alert(self, symbol: str, kind: str | None = None) -> dict | None:
+        q, args = "SELECT rowid, time, symbol, kind, text FROM alerts WHERE symbol = ?", [symbol]
+        if kind:
+            q += " AND kind = ?"
+            args.append(kind)
+        q += " ORDER BY rowid DESC LIMIT 1"
+        row = self.db.execute(q, args).fetchone()
+        return dict(zip(("id", "time", "symbol", "kind", "text"), row)) if row else None
+
+    def alert_outcome(self, alert_id: int) -> dict | None:
+        row = self.db.execute("SELECT outcome, max_move_atr, reached_next FROM zone_outcomes WHERE alert_id = ?",
+                              (alert_id,)).fetchone()
+        return dict(zip(("outcome", "max_move_atr", "reached_next"), row)) if row else None
+
+    # ------------------------------------------------------------------ trade journal
+
+    def journal_add(self, symbol: str, direction: str, entry: float, stop: float, target: float,
+                    alert_id: int | None, note: str) -> int:
+        cur = self.db.execute(
+            "INSERT INTO journal (time_opened, symbol, direction, entry, stop, target, alert_id, note, status) "
+            "VALUES (?,?,?,?,?,?,?,?, 'open')",
+            (self._now(), symbol, direction, entry, stop, target, alert_id, note))
+        self.db.commit()
+        return cur.lastrowid
+
+    def journal_close(self, trade_id: int, exit_price: float, note: str = "") -> dict:
+        row = self.db.execute("SELECT direction, entry, stop FROM journal WHERE id = ?", (trade_id,)).fetchone()
+        if row is None:
+            raise ValueError(f"no journal entry with id {trade_id}")
+        direction, entry, stop = row
+        risk = abs(entry - stop)
+        r = (exit_price - entry) / risk if direction == "long" else (entry - exit_price) / risk
+        self.db.execute("UPDATE journal SET status='closed', time_closed=?, exit_price=?, exit_note=?, r=? "
+                        "WHERE id = ?", (self._now(), exit_price, note, r, trade_id))
+        self.db.commit()
+        return {"id": trade_id, "direction": direction, "entry": entry, "stop": stop, "exit_price": exit_price, "r": r}
+
+    def journal_rows(self) -> list[dict]:
+        cols = [d[1] for d in self.db.execute("PRAGMA table_info(journal)").fetchall()]
+        return [dict(zip(cols, row)) for row in self.db.execute("SELECT * FROM journal ORDER BY id").fetchall()]
