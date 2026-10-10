@@ -20,8 +20,9 @@ TIMEFRAMES = ("1m", "5m", "15m", "30m", "1h", "D")
 # ---------------------------------------------------------------- universe
 # DELL dropped 2026-10-09: Alpaca thin-bar closes differ from Webull/Robinhood (alignment p95 0.14 ATR).
 BUILD_STOCKS = ("SPY", "QQQ", "SOXL", "NVDA")
-# 10 more names must be picked before tuning starts (open item in the plan).
-VALIDATION_STOCKS = ("AMD", "TSLA", "META", "AAPL", "MSFT", "AMZN", "AVGO", "MU", "PLTR", "COIN")
+# Confirmed 2026-10-09: this list stays at 9, no further additions.
+# MU moved out 2026-10-09: now one of the simple-bounce experiment's own SIMPLE_STOCKS.
+VALIDATION_STOCKS = ("AMD", "TSLA", "META", "AAPL", "MSFT", "AMZN", "AVGO", "PLTR", "COIN")
 CONTEXT_SYMBOLS = ("SPY", "QQQ", "SMH", "VIXY")
 
 # ---------------------------------------------------------------- data split
@@ -212,3 +213,17 @@ LIVE_HISTORY_SESSIONS = 25         # sessions of 5m bars kept in memory (RVOL ne
 POLL_DELAY_S = 2                   # poll this long after each 5m boundary
 SCHEDULE = {"connect": "04:00", "premarket_plan": "08:30", "cutoff_reminder": "15:45",
             "archive": "16:05", "shutdown": "20:00"}
+
+# ---------------------------------------------------------------- simple bounce (separate experimental strategy)
+# A deliberately simpler setup the trader wants tested on its own: trade the first
+# close back out of a 30m S/R zone, stop at the extreme since entry, target the next
+# opposing zone. Does not touch the main engine (regime/A+/multi-stage bounce).
+SIMPLE_STOCKS = ("BE", "MRVL", "DELL", "MU", "NBIS", "SNDK", "COHR", "CRDO")
+SIMPLE_ZONE_TIMEFRAME = "30m"
+SIMPLE_ZONE_CONFIG = ZoneConfig(pivot_period=10, channel_width_pct=4.0, min_strength=2)
+SIMPLE_MAX_BARS_TO_ENTRY = 6        # touch bar + up to this many more before the setup expires unfilled
+SIMPLE_STOP_BUFFER_ATR = 0.1
+SIMPLE_BREAK_ATR = 0.25             # close this far past the zone's far edge cancels the setup
+SIMPLE_MIN_T1_R = 1.5               # skip if the next opposing zone is closer than this
+SIMPLE_ENTRY_WINDOW = ("09:45", "15:30")
+SIMPLE_ZONE_WEIGHTS_PATH = "models/simple_zone_weights.json"
