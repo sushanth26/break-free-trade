@@ -5,7 +5,9 @@ never fixed dollars. Modules read from here; no magic numbers elsewhere.
 """
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
+from pathlib import Path
 
 # ---------------------------------------------------------------- market / time
 TZ = "America/New_York"
@@ -232,6 +234,20 @@ SIMPLE_ZONE_WEIGHTS_PATH = "models/simple_zone_weights.json"
 # Same 30m zone config and learned weights as the simple-bounce experiment -- this is the
 # live/replay alert layer on top of that already-scored zone set, never an order-placer.
 WATCHLIST = ("BE", "MRVL", "DELL", "MU", "NBIS", "SNDK", "COHR", "CRDO")
+WATCHLIST_PATH = "models/watchlist.json"   # dashboard edits land here; WATCHLIST above is just the seed default
+
+
+def load_watchlist() -> tuple[str, ...]:
+    p = Path(WATCHLIST_PATH)
+    if p.exists():
+        return tuple(json.loads(p.read_text()))
+    return WATCHLIST
+
+
+def save_watchlist(symbols) -> None:
+    p = Path(WATCHLIST_PATH)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps([s.upper() for s in symbols], indent=2))
 ZONE_ASSISTANT_TIMEFRAME = SIMPLE_ZONE_TIMEFRAME
 ZONE_ASSISTANT_ZONE_CONFIG = SIMPLE_ZONE_CONFIG
 ZONE_ASSISTANT_WEIGHTS_PATH = SIMPLE_ZONE_WEIGHTS_PATH

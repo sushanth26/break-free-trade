@@ -75,7 +75,7 @@ def print_and_save_morning_sheet(symbols, history, now, out_dir: str = "reports"
 
 def run_replay(args):
     day = pd.Timestamp(args.replay, tz=config.TZ).normalize()
-    symbols = list(config.WATCHLIST)
+    symbols = list(config.load_watchlist())
     history = load_history(symbols, end=day)
     telegram = Telegram(dry_run=True)
     store = None if args.no_store else Store(config.DB_PATH)
@@ -118,7 +118,7 @@ async def _live_loop(runner, source, symbols, history):
 
 
 def run_live(args):
-    symbols = list(config.WATCHLIST)
+    symbols = list(config.load_watchlist())
     history = load_history(symbols)
     telegram = Telegram(dry_run=args.dry_run)
     store = Store(config.DB_PATH)

@@ -24,7 +24,9 @@ CREATE TABLE IF NOT EXISTS journal (id INTEGER PRIMARY KEY AUTOINCREMENT, time_o
 class Store:
     def __init__(self, path: str | Path = config.DB_PATH):
         Path(path).parent.mkdir(parents=True, exist_ok=True)
-        self.db = sqlite3.connect(str(path))
+        # check_same_thread=False: the dashboard server's request-handling thread differs from
+        # whichever thread constructed the Store; we never write concurrently, so this is safe.
+        self.db = sqlite3.connect(str(path), check_same_thread=False)
         self.db.executescript(SCHEMA)
 
     def _now(self):
