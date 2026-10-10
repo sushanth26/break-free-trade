@@ -68,7 +68,7 @@ class _Position:
     zone_top: float
 
 
-def _zone_score(zone, side, hist, row, rvol, weights) -> float:
+def zone_score_at(zone, side, hist, row, rvol, weights) -> float:
     sf = strength_factors(zone, hist, row["atr"], round_step(row["close"]),
                           (row["prev_high"], row["prev_low"], row["prev_close"]))
     bf = break_factors(zone, side, hist, row["atr"], rvol, None, False)
@@ -182,7 +182,7 @@ def simulate(datas: dict[str, SymbolData], weights: dict, start, end,
                 fill_px = fills.market_fill(u.direction, plan["entry"], selling=False)
                 hist = bars_by_sym[s].iloc[: i + 1]
                 side = "support" if u.direction == "long" else "resistance"
-                score = _zone_score(u.zone, side, hist, row, rvol_by_sym[s].iloc[: i + 1], weights)
+                score = zone_score_at(u.zone, side, hist, row, rvol_by_sym[s].iloc[: i + 1], weights)
                 positions[s] = _Position(s, u.direction, fill_px, plan["stop"], plan["target"], shares,
                                         now, score, fills.commission(shares), u.zone.bottom, u.zone.top)
                 break   # one new position per symbol per bar
