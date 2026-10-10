@@ -21,7 +21,10 @@ CONTENT_TYPES = {".html": "text/html; charset=utf-8", ".js": "application/javasc
 
 def make_handler(store: Store):
     class Handler(BaseHTTPRequestHandler):
-        protocol_version = "HTTP/1.1"
+        # HTTP/1.0 on purpose: closes the connection after every response, no keep-alive
+        # bookkeeping -- simplest, most robust choice for a small local single-threaded API
+        # a browser polls every few seconds (keep-alive bought nothing here and could wedge
+        # the single request-handling thread on a connection nobody closed).
 
         def log_message(self, fmt, *args):
             pass   # quiet; the terminal running run_assistant.py is the log
