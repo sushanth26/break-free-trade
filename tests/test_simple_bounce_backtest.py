@@ -54,14 +54,20 @@ def test_save_chart_review(tmp_path):
 
 
 def test_simulate_has_no_lookahead():
+    """The cutoff must be a whole-day boundary: simulate()'s ``end`` processes the entire
+    calendar day, so trimming bars at an arbitrary mid-day point (rather than after that
+    day's last bar) would make the truncated run missing real bars for its own last day --
+    a test artifact, not a lookahead leak."""
     datas = {d.symbol: d for d in (_symbol_data(70, 1), _symbol_data(70, 2))}
-    start = datas[next(iter(datas))].bars.index[0]
-    cutoff = datas[next(iter(datas))].bars.index[int(len(datas[next(iter(datas))].bars) * 0.6)]
+    one = datas[next(iter(datas))]
+    all_days = sorted(set(one.bars.index.normalize()))
+    cutoff_day = all_days[int(len(all_days) * 0.6)]
+    start = one.bars.index[0]
 
-    full_trades, full_skipped = simulate(datas, WEIGHTS, start, cutoff.normalize(), FillModel())
+    full_trades, full_skipped = simulate(datas, WEIGHTS, start, cutoff_day, FillModel())
 
-    truncated = {s: SymbolData(s, d.bars[d.bars.index <= cutoff], d.daily) for s, d in datas.items()}
-    cut_trades, cut_skipped = simulate(truncated, WEIGHTS, start, cutoff.normalize(), FillModel())
+    truncated = {s: SymbolData(s, d.bars[d.bars.index.normalize() <= cutoff_day], d.daily) for s, d in datas.items()}
+    cut_trades, cut_skipped = simulate(truncated, WEIGHTS, start, cutoff_day, FillModel())
 
     pd.testing.assert_frame_equal(full_trades.reset_index(drop=True), cut_trades.reset_index(drop=True))
 
