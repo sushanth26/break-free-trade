@@ -10,3 +10,5 @@ logs/
 *.db
 webull_data_sdk.log
 reports/
+models/
+conf/

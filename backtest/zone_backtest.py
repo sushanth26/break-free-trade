@@ -20,7 +20,7 @@ import config
 from backtest.labels import ZoneTimeline, find_touches
 from backtest.split import is_oos, is_train
 from config import ZoneConfig
-from data.base import regular_hours, resample
+from data.base import extended_hours, regular_hours, resample, to_ts
 from engine.break_risk import scale_break
 from engine.features import compute_features
 from engine.profile import round_step
@@ -61,15 +61,20 @@ def config_id(combo: tuple[str, ...], cfg: ZoneConfig) -> str:
 
 
 def build_timeline(data: SymbolData, combo: tuple[str, ...], cfg: ZoneConfig,
-                   cache: dict | None = None) -> ZoneTimeline:
-    """Merged multi-timeframe zone sets over time (changes only at pivot confirmations)."""
+                   cache: dict | None = None, session: str = "regular") -> ZoneTimeline:
+    """Merged multi-timeframe zone sets over time (changes only at pivot confirmations).
+
+    ``session``: "regular" (09:30-16:00, the default everywhere this was already
+    used) or "extended" (04:00-20:00 -- as far as our data goes; a trader's
+    TradingView chart may show true overnight bars we don't have at all).
+    """
     cache = {} if cache is None else cache
-    reg = regular_hours(data.bars)
+    reg = regular_hours(data.bars) if session == "regular" else extended_hours(data.bars)
     histories = []
     for tf in combo:
-        key = (data.symbol, tf, cfg)
+        key = (data.symbol, tf, cfg, session)
         if key not in cache:
-            src = reg if tf == "5m" else data.daily if tf == "D" else resample(reg, tf)
+            src = reg if tf == "5m" else data.daily if tf == "D" else resample(reg, tf, regular_only=False)
             cache[key] = zone_history(src, tf, cfg)
         histories.append(cache[key])
     times = sorted({t for h in histories for t, _ in h})
@@ -168,20 +173,22 @@ def learn_weights(touches: pd.DataFrame, C: float = 1.0) -> dict:
     a_s, a_b = bal.coef_[0]
     w_s = 1.0
     w_b = float(max(-a_b, 0.0) / a_s) if a_s > 0 else config.ZONE_W_BREAK
+    raw = w_s * s - w_b * b
     return {
         "strength": {"bias": float(ms.intercept_[0]), **dict(zip(xs.columns, map(float, ms.coef_[0])))},
         "break": {"bias": float(mb.intercept_[0]), **dict(zip(xb.columns, map(float, mb.coef_[0])))},
         "w_s": w_s, "w_b": w_b, "n_train": int(len(r)),
+        "raw_quantiles": [float(v) for v in np.quantile(raw, np.linspace(0, 1, config.ZONE_SCORE_QUANTILES))],
     }
 
 
 def apply_weights(touches: pd.DataFrame, weights: dict) -> pd.DataFrame:
-    from engine.scoring import logistic_score
+    from engine.scoring import logistic_score, raw_to_score
     out = touches.copy()
     xs, xb = _matrix(out, "s_", scale_strength), _matrix(out, "b_", scale_break)
     out["strength"] = [logistic_score(r, weights["strength"]) for r in xs.to_dict("records")]
     out["break_risk"] = [logistic_score(r, weights["break"]) for r in xb.to_dict("records")]
-    out["score"] = (weights["w_s"] * out["strength"] - weights["w_b"] * out["break_risk"]).clip(0, 100)
+    out["score"] = raw_to_score(weights["w_s"] * out["strength"] - weights["w_b"] * out["break_risk"], weights)
     return out
 
 
@@ -190,6 +197,23 @@ def score_bands(touches: pd.DataFrame) -> pd.DataFrame:
     r = touches[touches["outcome"] != "none"].copy()
     r["band"] = pd.cut(r["score"], [-1, 49.999, 79.999, 101], labels=["<50", "50-79", "80+"])
     return r.groupby("band", observed=False).agg(touches=("held", "size"), hold_rate=("held", "mean"))
+
+
+def day3_gate(train: pd.DataFrame, valid_start: str = config.ZONE_GATE_VALID_START,
+              min_touches: int = config.ZONE_GATE_MIN_TOUCHES, min_edge: float = config.ZONE_GATE_MIN_EDGE) -> dict:
+    """Day 3 gate on TRAIN touches only: fit before ``valid_start``, score the rest.
+
+    Passes when the 80+ and <50 bands each have ``min_touches`` validation
+    touches and 80+ holds at least ``min_edge`` more often (as a fraction). Out-of-sample touches are never used.
+    """
+    t = pd.DatetimeIndex(train["time"])
+    fit, valid = train[t < to_ts(valid_start)], train[t >= to_ts(valid_start)]
+    bands = score_bands(apply_weights(valid, learn_weights(fit)))
+    top, low = bands.loc["80+"], bands.loc["<50"]
+    enough = top["touches"] >= min_touches and low["touches"] >= min_touches
+    edge = float(top["hold_rate"] - low["hold_rate"]) if enough else float("nan")
+    return {"bands": bands, "n_fit": len(fit), "n_valid": len(valid), "enough": bool(enough), "edge": edge,
+            "passed": bool(enough and edge >= min_edge)}
 
 
 def save_weights(weights: dict, path: str | Path = config.ZONE_WEIGHTS_PATH) -> Path:

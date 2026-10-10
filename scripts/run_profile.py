@@ -1,6 +1,6 @@
 """Print a StockProfile from cached history.
 
-  python scripts/run_profile.py DELL --as-of "2026-10-09 10:00"
+  python scripts/run_profile.py NVDA --as-of "2026-10-09 10:00"
 """
 import argparse
 

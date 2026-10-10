@@ -65,9 +65,18 @@ def build_inputs(include_valid=True):
     return build, valid
 
 
-def candidates(top_zone_configs: int, quick: bool) -> list[EngineSettings]:
-    board = pd.read_csv("reports/zone_leaderboard.csv")
-    ids = board[board["eligible"]]["config"].head(top_zone_configs).tolist() or board["config"].head(top_zone_configs).tolist()
+def candidates(top_zone_configs: int, quick: bool, zone_configs: list[str] | None = None) -> list[EngineSettings]:
+    """Zone configs to tune levers on: an explicit list, else the leaderboard's top N by train hold rate.
+
+    The leaderboard's own ranking is raw hold rate, which Day 3 showed can favour
+    tiny-sample configs (``1h|p20|w3|s2``, 497 touches) that don't survive the
+    score-band gate -- pass ``zone_configs`` to tune only Day-3-validated configs.
+    """
+    if zone_configs:
+        ids = zone_configs
+    else:
+        board = pd.read_csv("reports/zone_leaderboard.csv")
+        ids = board[board["eligible"]]["config"].head(top_zone_configs).tolist() or board["config"].head(top_zone_configs).tolist()
     levers = {k: v[:1] for k, v in LEVERS.items()} if quick else LEVERS
     out = []
     for cid in ids:
@@ -89,6 +98,9 @@ def main():
     ap.add_argument("mode", choices=["tune", "report", "run"])
     ap.add_argument("--jobs", type=int, default=-1)
     ap.add_argument("--top", type=int, default=10, help="zone configs from Backtest 1")
+    ap.add_argument("--zone-configs", nargs="+", default=None,
+                    help="tune levers on exactly these zone config ids (e.g. '15m+1h|p5|w3|s2'), "
+                         "instead of the leaderboard's top --top by raw hold rate")
     ap.add_argument("--quick", action="store_true")
     ap.add_argument("--start")
     ap.add_argument("--end")
@@ -97,7 +109,7 @@ def main():
 
     if args.mode == "tune":
         build, _ = build_inputs(include_valid=False)
-        cands = candidates(args.top, args.quick)
+        cands = candidates(args.top, args.quick, args.zone_configs)
         print(f"tuning {len(cands)} settings on train {config.TRAIN_START}..{config.TRAIN_END}")
         res = choose(evaluate(build, cands, config.TRAIN_START, config.TRAIN_END, list(build.datas), args.jobs))
         res.to_csv("reports/tuning_train.csv", index=False)
@@ -112,7 +124,7 @@ def main():
         cands = None
         if Path("reports/tuning_train.csv").exists():
             top_ids = pd.read_csv("reports/tuning_train.csv")["settings_id"].head(20).tolist()
-            pool = candidates(args.top, False)
+            pool = candidates(args.top, False, args.zone_configs)
             cands = [s for s in pool if settings_id(s) in top_ids] or None
         r = robustness_report(build, valid, settings, cands, n_jobs=args.jobs)
         show("out-of-sample", r["summaries"]["oos_all"])

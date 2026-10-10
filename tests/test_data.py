@@ -1,11 +1,14 @@
 import pandas as pd
+
+import config
 import pytest
 
-from data.alignment import compare_bars, detect_shift
+from data.alignment import compare_bars, detect_shift, mismatches
 from data.calendar import in_news_window, is_earnings_week
 from data.csv_provider import CsvProvider, read_csv_bars, write_cache, write_day_csv
 from data.news import headlines_before, normalize_news
 from data.webull_provider import parse_bars
+from engine.indicators import atr
 from tests.synthetic import random_bars
 
 ET = "America/New_York"
@@ -46,11 +49,51 @@ def test_parquet_cache_and_clip(tmp_path):
 def test_alignment_passes_on_identical_and_fails_on_drift():
     a = random_bars(days=5)
     assert compare_bars(a, a.copy(), "X").passed
+    unit = atr(a)
     b = a.copy()
-    b.iloc[10, b.columns.get_loc("close")] *= 1.001        # 0.1% off
-    b.iloc[20, b.columns.get_loc("volume")] *= 1.5
+    b.iloc[100, b.columns.get_loc("close")] += 0.6 * unit.iloc[100]  # one bad print: tolerated
     r = compare_bars(a, b, "X")
-    assert not r.passed and r.close_fail == 1 and r.volume_fail == 1
+    assert r.passed and r.price_outliers == 1
+    for i in (150, 200):                                              # three in ~385 bars: > 0.5%
+        b.iloc[i, b.columns.get_loc("close")] += 0.6 * unit.iloc[i]
+    r = compare_bars(a, b, "X")
+    assert not r.passed and r.price_outliers == 3
+
+
+def test_alignment_tolerates_small_noise_but_not_drift():
+    a = random_bars(days=5)
+    unit = atr(a)
+    noisy = a.copy()
+    noisy.iloc[50::40, noisy.columns.get_loc("close")] += 0.2 * unit.iloc[50::40]   # ~2% of bars, 0.2 ATR
+    assert compare_bars(a, noisy, "X").passed
+    drift = a.copy()
+    drift.iloc[20:, drift.columns.get_loc("close")] += 0.15 * unit.iloc[20:]       # every bar 0.15 ATR off
+    assert not compare_bars(a, drift, "X").passed
+
+
+def test_alignment_volume_skips_auction_bar_only():
+    a = random_bars(days=5)
+    auction = a.index.strftime("%H:%M") == "15:55"
+    b = a.copy()
+    b.loc[auction, "volume"] *= 3                          # Webull folds the closing cross in
+    b.loc[auction, "close"] += 1.0                         # including its price
+    assert compare_bars(a, b, "X").passed
+    b = a.copy()
+    b.iloc[::10, b.columns.get_loc("volume")] *= 1.5       # 10% of ordinary bars off
+    assert not compare_bars(a, b, "X").passed
+
+
+def test_alignment_skips_forming_day_and_lists_mismatches():
+    a = random_bars(days=5)
+    b = a.copy()
+    b.iloc[100, b.columns.get_loc("close")] += 0.3 * atr(a).iloc[100]
+    b = b.iloc[:-3]                                        # last day still forming on one side
+    last = a.index[-1].normalize()
+    assert compare_bars(a, b, "X").only_a == 3
+    r = compare_bars(a, b, "X", before=last)
+    assert r.only_a == 0 and r.only_b == 0 and r.price_fail == 1 and r.passed
+    bad = mismatches(a, b, before=last)
+    assert list(bad.index) == [a.index[100]] and abs(bad["close_atr"].iloc[0] - 0.3) < 1e-9
 
 
 def test_alignment_detects_bar_end_timestamps():
@@ -78,3 +121,30 @@ def test_news_window_and_earnings_week():
     earn = pd.DataFrame({"date": [pd.Timestamp("2026-10-28").date()], "symbol": ["META"]})
     assert is_earnings_week("meta", "2026-10-26 10:00", earn)
     assert not is_earnings_week("META", "2026-10-19 10:00", earn)
+
+
+def test_news_fetch_passes_no_total_limit(monkeypatch):
+    """alpaca-py treats ``limit`` as a total cap; passing one truncated a year of news to 50."""
+    import types, sys
+    seen = {}
+
+    class FakeReq:
+        def __init__(self, **kw):
+            seen.update(kw)
+
+    class FakeClient:
+        def __init__(self, *a):
+            pass
+
+        def get_news(self, req):
+            return types.SimpleNamespace(data={"news": [
+                {"id": i, "created_at": "2026-10-09T14:00:00Z", "headline": "h", "symbols": ["DELL"]}
+                for i in range(120)]})
+
+    monkeypatch.setitem(sys.modules, "alpaca.data.historical.news", types.SimpleNamespace(NewsClient=FakeClient))
+    monkeypatch.setitem(sys.modules, "alpaca.data.requests", types.SimpleNamespace(NewsRequest=FakeReq))
+    monkeypatch.setenv("ALPACA_API_KEY", "k")
+    monkeypatch.setenv("ALPACA_SECRET_KEY", "s")
+    from data.news import fetch_alpaca_news
+    out = fetch_alpaca_news(["DELL"], "2026-01-01", "2026-10-09")
+    assert "limit" not in seen and len(out) == 120

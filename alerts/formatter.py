@@ -49,3 +49,25 @@ def replan(symbol: str, what: str, bias: str, consequence: str, note: str = "") 
 
 def info(text: str) -> str:
     return f"ℹ️ {text}"
+
+
+# ------------------------------------------------------------------ zone assistant
+
+def zone_approaching(symbol: str, label: str, zone: Zone, score: float, hold: float) -> str:
+    return f"🟡 {symbol} → {label} {_z(zone)} · score {score:.0f} · holds {hold:.0%}"
+
+
+def zone_at(symbol: str, label: str, zone: Zone) -> str:
+    return f"🟡 {symbol} at {label} {_z(zone)}"
+
+
+def zone_reclaimed(symbol: str, label: str, close: float, wick: float, direction: str = "long") -> str:
+    if direction == "long":
+        return f"🟢 {symbol} reclaimed {label} · close {close:.2f} · wick low {wick:.2f}"
+    return f"🟢 {symbol} rejected at {label} · close {close:.2f} · wick high {wick:.2f}"
+
+
+def zone_broken(symbol: str, label: str, close: float, direction: str = "long") -> str:
+    if direction == "long":
+        return f"🔴 {symbol} broke {label} · close {close:.2f}"
+    return f"🔴 {symbol} broke above {label} · close {close:.2f}"

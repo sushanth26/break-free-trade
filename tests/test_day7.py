@@ -101,6 +101,18 @@ def test_alert_formats_match_plan():
     assert fmt.action("DELL", Action(None, "filled")) is None
 
 
+def test_zone_assistant_alert_formats_match_architecture_doc():
+    z = Zn(269.0, 271.0)
+    assert fmt.zone_approaching("MRVL", "S1", z, 84, 0.85) == "🟡 MRVL → S1 269.00–271.00 · score 84 · holds 85%"
+    assert fmt.zone_at("MRVL", "S1", z) == "🟡 MRVL at S1 269.00–271.00"
+    assert fmt.zone_reclaimed("MRVL", "S1", 271.30, 267.70) == \
+        "🟢 MRVL reclaimed S1 · close 271.30 · wick low 267.70"
+    assert fmt.zone_reclaimed("MRVL", "R1", 271.30, 274.0, direction="short") == \
+        "🟢 MRVL rejected at R1 · close 271.30 · wick high 274.00"
+    assert fmt.zone_broken("MRVL", "S1", 268.40) == "🔴 MRVL broke S1 · close 268.40"
+    assert fmt.zone_broken("MRVL", "R1", 281.40, direction="short") == "🔴 MRVL broke above R1 · close 281.40"
+
+
 def test_scheduler_and_telegram_dry_run(tmp_path):
     t = pd.Timestamp("2026-10-19 08:31", tz=ET)
     assert jobs_due(t, set()) == ["connect", "premarket_plan"]

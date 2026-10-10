@@ -40,8 +40,12 @@ def headlines_before(news: pd.DataFrame, t: pd.Timestamp, symbols: set[str] | No
     return out
 
 
-def fetch_alpaca_news(symbols: list[str], start, end, page_limit: int = 50) -> pd.DataFrame:
-    """Download headlines for ``symbols`` between start and end (pages through results)."""
+def fetch_alpaca_news(symbols: list[str], start, end) -> pd.DataFrame:
+    """Download every headline for ``symbols`` between start and end.
+
+    alpaca-py pages internally and treats ``limit`` as the TOTAL item cap, so
+    no limit is passed (a limit of 50 returned only 50 headlines for a year).
+    """
     from alpaca.data.historical.news import NewsClient
     from alpaca.data.requests import NewsRequest
 
@@ -50,7 +54,7 @@ def fetch_alpaca_news(symbols: list[str], start, end, page_limit: int = 50) -> p
     token = None
     while True:
         req = NewsRequest(symbols=",".join(symbols), start=to_ts(start).to_pydatetime(),
-                          end=to_ts(end).to_pydatetime(), limit=page_limit,
+                          end=to_ts(end).to_pydatetime(),
                           include_content=False, page_token=token)
         res = client.get_news(req)
         items = res.data.get("news", []) if hasattr(res, "data") else []

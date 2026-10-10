@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Zone Assistant</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<script src="vendor/react.production.min.js"></script>
+<script src="vendor/react-dom.production.min.js"></script>
+<script src="vendor/babel.min.js"></script>
+<style>
+  :root {
+    --ink: #14181f; --paper: #f4f5f3; --raised: #ffffff; --line: #d8dbd6; --muted: #656e68;
+    --tape: #1f7a7a; --good: #2f7a4f; --warn: #a3670f; --crit: #a1382f;
+    --good-dim: #dcefe1; --warn-dim: #f6e7cd; --crit-dim: #f5dcda; --tape-dim: #d8eceb;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ink: #eef1f0; --paper: #14181f; --raised: #1b212b; --line: #2a313d; --muted: #8d98a6;
+      --tape: #4fb8b4; --good: #6fbf8b; --warn: #e3ab52; --crit: #e2756b;
+      --good-dim: #1e3528; --warn-dim: #3a2e16; --crit-dim: #3a211e; --tape-dim: #2a5b59;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--paper); color: var(--ink);
+        font: 14px/1.5 ui-sans-serif, -apple-system, "Segoe UI", sans-serif; }
+  .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-variant-numeric: tabular-nums; }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 20px 20px 60px; }
+  header { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 10px;
+          border-bottom: 2px solid var(--ink); padding-bottom: 14px; margin-bottom: 18px; }
+  header h1 { font-size: 19px; margin: 0; }
+  .stats { display: flex; gap: 14px; font-size: 12.5px; color: var(--muted); }
+  .stats b { color: var(--ink); }
+  nav.tabs { display: flex; gap: 4px; margin-bottom: 16px; border-bottom: 1px solid var(--line); }
+  nav.tabs button { background: none; border: none; padding: 9px 14px; font-size: 13.5px; cursor: pointer;
+                    color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -1px; }
+  nav.tabs button.active { color: var(--ink); border-bottom-color: var(--tape); font-weight: 600; }
+  .card { background: var(--raised); border: 1px solid var(--line); border-radius: 6px; padding: 14px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.04em;
+      color: var(--muted); font-weight: 700; padding: 0 8px 7px 0; border-bottom: 1px solid var(--line); }
+  td { padding: 7px 8px 7px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  .pill { display: inline-block; font-size: 10.5px; font-weight: 700; padding: 2px 7px; border-radius: 20px;
+         text-transform: uppercase; letter-spacing: 0.03em; white-space: nowrap; }
+  .pill.approaching { background: var(--warn-dim); color: var(--warn); }
+  .pill.at_zone { background: var(--tape-dim); color: var(--tape); }
+  .pill.reclaimed { background: var(--good-dim); color: var(--good); }
+  .pill.broken { background: var(--crit-dim); color: var(--crit); }
+  .pill.held { background: var(--good-dim); color: var(--good); }
+  .pill.broke { background: var(--crit-dim); color: var(--crit); }
+  .pill.open { background: var(--warn-dim); color: var(--warn); }
+  .pill.closed { background: var(--tape-dim); color: var(--tape); }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  input, select, button.btn { font: inherit; padding: 6px 9px; border-radius: 4px; border: 1px solid var(--line);
+                             background: var(--raised); color: var(--ink); }
+  button.btn { cursor: pointer; background: var(--ink); color: var(--paper); border: none; font-weight: 600; }
+  button.btn.ghost { background: none; color: var(--ink); border: 1px solid var(--line); }
+  button.btn:disabled { opacity: 0.5; cursor: default; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; background: var(--tape-dim); color: var(--tape);
+         padding: 4px 6px 4px 10px; border-radius: 20px; font-weight: 600; font-size: 12.5px; }
+  .chip button { background: none; border: none; color: inherit; cursor: pointer; font-size: 13px; padding: 0 2px; }
+  .muted { color: var(--muted); }
+  .section { margin-bottom: 22px; }
+  .section h2 { font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted);
+               margin: 0 0 10px; }
+  .err { color: var(--crit); font-size: 12.5px; margin-top: 8px; }
+  .scrollx { overflow-x: auto; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useCallback } = React;
+
+function api(path, opts) {
+  return fetch(path, opts).then(async r => {
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(body.error || r.statusText);
+    return body;
+  });
+}
+
+function timeShort(t) {
+  if (!t) return "";
+  const m = t.match(/(\d{2}:\d{2}:\d{2})/);
+  return m ? m[1] : t;
+}
+
+function Header({ summary }) {
+  return (
+    <header>
+      <h1>Zone Assistant</h1>
+      <div className="stats">
+        <span><b>{summary.alerts ?? 0}</b> alerts</span>
+        <span><b>{summary.outcomes_held ?? 0}</b> held</span>
+        <span><b>{summary.outcomes_broke ?? 0}</b> broke</span>
+        <span><b>{summary.journal_open ?? 0}</b> open trades</span>
+      </div>
+    </header>
+  );
+}
+
+function AlertsTab() {
+  const [alerts, setAlerts] = useState([]);
+  const [symbol, setSymbol] = useState("");
+  const [err, setErr] = useState("");
+
+  const load = useCallback(() => {
+    const q = symbol ? `?symbol=${encodeURIComponent(symbol)}` : "";
+    api("/api/alerts" + q).then(setAlerts).catch(e => setErr(String(e)));
+  }, [symbol]);
+
+  useEffect(() => {
+    load();
+    const id = setInterval(load, 5000);
+    return () => clearInterval(id);
+  }, [load]);
+
+  const symbols = [...new Set(alerts.map(a => a.symbol))].sort();
+
+  return (
+    <div className="card">
+      <div className="row" style={{ marginBottom: 12 }}>
+        <select value={symbol} onChange={e => setSymbol(e.target.value)}>
+          <option value="">all symbols</option>
+          {symbols.map(s => <option key={s} value={s}>{s}</option>)}
+        </select>
+        <span className="muted">auto-refreshes every 5s · {alerts.length} shown</span>
+      </div>
+      {err && <div className="err">{err}</div>}
+      <div className="scrollx">
+        <table>
+          <thead><tr><th>time</th><th>symbol</th><th>stage</th><th>score</th><th>text</th></tr></thead>
+          <tbody>
+            {alerts.map(a => (
+              <tr key={a.id}>
+                <td className="mono">{timeShort(a.time)}</td>
+                <td><b>{a.symbol}</b></td>
+                <td><span className={"pill " + a.kind.replace("zone_", "")}>{a.kind.replace("zone_", "").replace("_", " ")}</span></td>
+                <td className="mono">{a.score != null ? Math.round(a.score) : "-"}</td>
+                <td>{a.text}</td>
+              </tr>
+            ))}
+            {!alerts.length && <tr><td colSpan="5" className="muted">no alerts yet</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function WatchlistTab() {
+  const [symbols, setSymbols] = useState([]);
+  const [draft, setDraft] = useState("");
+  const [dirty, setDirty] = useState(false);
+  const [err, setErr] = useState("");
+  const [saved, setSaved] = useState(false);
+
+  const load = useCallback(() => {
+    api("/api/watchlist").then(s => { setSymbols(s); setDirty(false); }).catch(e => setErr(String(e)));
+  }, []);
+  useEffect(load, [load]);
+
+  const add = () => {
+    const sym = draft.trim().toUpperCase();
+    if (sym && !symbols.includes(sym)) {
+      setSymbols([...symbols, sym]);
+      setDirty(true);
+    }
+    setDraft("");
+  };
+  const remove = sym => { setSymbols(symbols.filter(s => s !== sym)); setDirty(true); };
+  const save = () => {
+    api("/api/watchlist", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ symbols }) })
+      .then(s => { setSymbols(s); setDirty(false); setSaved(true); setTimeout(() => setSaved(false), 2000); })
+      .catch(e => setErr(String(e)));
+  };
+
+  return (
+    <div className="card">
+      <p className="muted" style={{ marginTop: 0 }}>
+        Edits here take effect on the next run of run_assistant.py (not the one currently running).
+      </p>
+      <div className="row" style={{ marginBottom: 14 }}>
+        {symbols.map(s => (
+          <span className="chip" key={s}>{s}<button onClick={() => remove(s)} title="remove">×</button></span>
+        ))}
+      </div>
+      <div className="row">
+        <input placeholder="e.g. NVDA" value={draft}
+               onChange={e => setDraft(e.target.value)}
+               onKeyDown={e => e.key === "Enter" && add()} />
+        <button className="btn ghost" onClick={add}>Add</button>
+        <button className="btn" onClick={save} disabled={!dirty}>Save</button>
+        {saved && <span style={{ color: "var(--good)" }}>saved</span>}
+      </div>
+      {err && <div className="err">{err}</div>}
+    </div>
+  );
+}
+
+function AddTradeForm({ onAdded }) {
+  const [f, setF] = useState({ symbol: "", direction: "long", entry: "", stop: "", target: "", note: "" });
+  const [err, setErr] = useState("");
+  const set = k => e => setF({ ...f, [k]: e.target.value });
+
+  const submit = () => {
+    if (!f.symbol || !f.entry || !f.stop || !f.target) { setErr("symbol, entry, stop, target are required"); return; }
+    api("/api/journal", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(f) })
+      .then(() => { setF({ symbol: "", direction: "long", entry: "", stop: "", target: "", note: "" }); setErr(""); onAdded(); })
+      .catch(e => setErr(String(e)));
+  };
+
+  return (
+    <div className="section">
+      <h2>Log a trade</h2>
+      <div className="row">
+        <input placeholder="symbol" style={{ width: 80 }} value={f.symbol} onChange={set("symbol")} />
+        <select value={f.direction} onChange={set("direction")}>
+          <option value="long">long</option><option value="short">short</option>
+        </select>
+        <input placeholder="entry" style={{ width: 90 }} value={f.entry} onChange={set("entry")} />
+        <input placeholder="stop" style={{ width: 90 }} value={f.stop} onChange={set("stop")} />
+        <input placeholder="target" style={{ width: 90 }} value={f.target} onChange={set("target")} />
+        <input placeholder="note (optional)" value={f.note} onChange={set("note")} />
+        <button className="btn" onClick={submit}>Add</button>
+      </div>
+      {err && <div className="err">{err}</div>}
+      <p className="muted">Links to the latest "at zone" or "rejected" alert for that symbol automatically.</p>
+    </div>
+  );
+}
+
+function CloseTradeRow({ trade, onClosed }) {
+  const [exit, setExit] = useState("");
+  const [err, setErr] = useState("");
+  if (trade.status === "closed") {
+    return <span className="mono">{trade.exit_price?.toFixed(2)} ({trade.r >= 0 ? "+" : ""}{trade.r?.toFixed(2)}R)</span>;
+  }
+  return (
+    <div className="row">
+      <input placeholder="exit" style={{ width: 80 }} value={exit} onChange={e => setExit(e.target.value)} />
+      <button className="btn ghost" onClick={() => {
+        if (!exit) return;
+        api(`/api/journal/${trade.id}/close`, { method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ exit: Number(exit) }) }).then(onClosed).catch(e => setErr(String(e)));
+      }}>Close</button>
+      {err && <span className="err">{err}</span>}
+    </div>
+  );
+}
+
+function JournalTab() {
+  const [rows, setRows] = useState([]);
+  const [err, setErr] = useState("");
+  const load = useCallback(() => {
+    api("/api/journal").then(setRows).catch(e => setErr(String(e)));
+  }, []);
+  useEffect(load, [load]);
+
+  return (
+    <div className="card">
+      <AddTradeForm onAdded={load} />
+      {err && <div className="err">{err}</div>}
+      <div className="scrollx">
+        <table>
+          <thead><tr><th>id</th><th>opened</th><th>symbol</th><th>dir</th><th>entry</th><th>stop</th>
+                 <th>target</th><th>status</th><th>exit / R</th></tr></thead>
+          <tbody>
+            {rows.map(r => (
+              <tr key={r.id}>
+                <td className="mono">#{r.id}</td>
+                <td className="mono">{(r.time_opened || "").slice(0, 16)}</td>
+                <td><b>{r.symbol}</b></td>
+                <td>{r.direction}</td>
+                <td className="mono">{r.entry?.toFixed(2)}</td>
+                <td className="mono">{r.stop?.toFixed(2)}</td>
+                <td className="mono">{r.target?.toFixed(2)}</td>
+                <td><span className={"pill " + r.status}>{r.status}</span></td>
+                <td><CloseTradeRow trade={r} onClosed={load} /></td>
+              </tr>
+            ))}
+            {!rows.length && <tr><td colSpan="9" className="muted">no trades logged yet</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function App() {
+  const [tab, setTab] = useState("alerts");
+  const [summary, setSummary] = useState({});
+
+  useEffect(() => {
+    const load = () => api("/api/summary").then(setSummary).catch(() => {});
+    load();
+    const id = setInterval(load, 8000);
+    return () => clearInterval(id);
+  }, []);
+
+  return (
+    <div className="wrap">
+      <Header summary={summary} />
+      <nav className="tabs">
+        {["alerts", "watchlist", "journal"].map(t => (
+          <button key={t} className={tab === t ? "active" : ""} onClick={() => setTab(t)}>
+            {t[0].toUpperCase() + t.slice(1)}
+          </button>
+        ))}
+      </nav>
+      {tab === "alerts" && <AlertsTab />}
+      {tab === "watchlist" && <WatchlistTab />}
+      {tab === "journal" && <JournalTab />}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>

@@ -1,10 +1,12 @@
 import pandas as pd
 
 from backtest.split import walk_forward_windows
-from backtest.zone_backtest import (SymbolData, apply_weights, config_grid, learn_weights, run_grid,
+import numpy as np
+
+from backtest.zone_backtest import (SymbolData, apply_weights, config_grid, day3_gate, learn_weights, run_grid,
                                     save_weights, score_bands)
 from config import ZoneConfig
-from engine.scoring import load_weights
+from engine.scoring import load_weights, raw_to_score
 from tests.synthetic import daily_from, random_bars
 
 
@@ -29,6 +31,15 @@ def test_small_grid_end_to_end(tmp_path):
     scored = apply_weights(touches, weights)
     bands = score_bands(scored)
     assert list(bands.index) == ["<50", "50-79", "80+"]
+    resolved = scored[scored["outcome"] != "none"]
+    assert resolved["score"].min() <= 5 and resolved["score"].max() >= 95   # percentile spans 0-100 on train
+    assert bands.loc["80+", "touches"] > 0 and bands.loc["<50", "touches"] > 0
+
+    gate = day3_gate(touches, valid_start=str(pd.DatetimeIndex(touches["time"]).sort_values()[len(touches) // 2]),
+                     min_touches=1)
+    assert gate["n_fit"] > 0 and gate["n_valid"] > 0 and isinstance(gate["passed"], bool)
+    assert not day3_gate(touches, valid_start=str(pd.DatetimeIndex(touches["time"]).sort_values()[len(touches) // 2]),
+                         min_touches=10**6)["enough"]
 
     path = save_weights(weights, tmp_path / "w.json")
     assert load_weights(str(path))["source"] == str(path)
@@ -39,3 +50,11 @@ def test_walk_forward_windows():
     assert w[0][0] == pd.Timestamp("2025-10-01", tz="America/New_York")
     assert all(a[3] < b[2] for a, b in zip(w, w[1:]))      # test months do not overlap
     assert len(w) == 9
+
+
+def test_raw_to_score_percentile_and_fallback():
+    w = {"raw_quantiles": list(np.linspace(40.0, 80.0, 101))}
+    assert raw_to_score(40.0, w) == 0 and raw_to_score(80.0, w) == 100
+    assert abs(raw_to_score(72.0, w) - 80.0) < 1e-9            # 80th percentile of train raw quality
+    assert raw_to_score(10.0, w) == 0 and raw_to_score(99.0, w) == 100
+    assert raw_to_score(65.0, {}) == 65 and raw_to_score(120.0, {}) == 100   # config defaults: clipped raw

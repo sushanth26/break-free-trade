@@ -28,7 +28,7 @@ def break_factors(zone: Zone, side: str, bars: pd.DataFrame, atr: float, rvol: p
     """Raw factors from 5m bars closed by now (the approach is the last APPROACH_BARS)."""
     n = config.APPROACH_BARS
     day = bars.index[-1].normalize()
-    today = bars[bars.index.normalize() == day]
+    today = bars.iloc[bars.index.searchsorted(day):]
     recent = bars.iloc[-(n + 1):]
     closes = recent["close"].to_numpy()
     toward = (closes[1:] < closes[:-1]) if side == "support" else (closes[1:] > closes[:-1])

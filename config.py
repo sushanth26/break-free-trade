@@ -5,7 +5,9 @@ never fixed dollars. Modules read from here; no magic numbers elsewhere.
 """
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
+from pathlib import Path
 
 # ---------------------------------------------------------------- market / time
 TZ = "America/New_York"
@@ -18,9 +20,11 @@ BASE_TIMEFRAME = "5m"
 TIMEFRAMES = ("1m", "5m", "15m", "30m", "1h", "D")
 
 # ---------------------------------------------------------------- universe
-BUILD_STOCKS = ("SPY", "QQQ", "DELL", "SOXL", "NVDA")
-# 10 more names must be picked before tuning starts (open item in the plan).
-VALIDATION_STOCKS = ("AMD", "TSLA", "META", "AAPL", "MSFT", "AMZN", "AVGO", "MU", "PLTR", "COIN")
+# DELL dropped 2026-10-09: Alpaca thin-bar closes differ from Webull/Robinhood (alignment p95 0.14 ATR).
+BUILD_STOCKS = ("SPY", "QQQ", "SOXL", "NVDA")
+# Confirmed 2026-10-09: this list stays at 9, no further additions.
+# MU moved out 2026-10-09: now one of the simple-bounce experiment's own SIMPLE_STOCKS.
+VALIDATION_STOCKS = ("AMD", "TSLA", "META", "AAPL", "MSFT", "AMZN", "AVGO", "PLTR", "COIN")
 CONTEXT_SYMBOLS = ("SPY", "QQQ", "SMH", "VIXY")
 
 # ---------------------------------------------------------------- data split
@@ -31,8 +35,13 @@ OOS_END = "2026-10-16"
 HISTORY_MONTHS = 12
 
 # ---------------------------------------------------------------- data checks
-ALIGN_CLOSE_TOL_PCT = 0.05     # Alpaca vs Webull closes within 0.05%
-ALIGN_VOLUME_TOL_PCT = 10.0    # volume within 10%
+ALIGN_PRICE_P95_ATR = 0.1      # Alpaca vs Webull close/high/low: 95% of diffs within 0.1 ATR (engine precision)
+ALIGN_PRICE_MAX_ATR = 0.5      # outlier: a diff above 0.5 ATR ...
+ALIGN_OUTLIER_MAX_SHARE = 0.005  # ... allowed on at most 0.5% of bars (a single bad print)
+ALIGN_VOLUME_TOL_PCT = 10.0    # a bar's volume "matches" within 10%
+ALIGN_VOLUME_MIN_SHARE = 0.95  # share of bars whose volume must match
+ALIGN_SKIP_SLOTS = ("15:55",)  # closing-auction bar: Webull folds in the 16:00 cross (price and volume), Alpaca does not
+ALIGN_SHIFT_CLOSE_PCT = 0.05   # close match used only to detect a timestamp shift
 WEBULL_MAX_BARS = 1200         # history endpoint cap
 
 # ---------------------------------------------------------------- profile (module 1)
@@ -79,8 +88,12 @@ ZONE_GRID_TIMEFRAME_COMBOS = (
 # Zone score shown on charts = w_s * strength - w_b * break risk
 ZONE_W_STRENGTH = 1.0
 ZONE_W_BREAK = 1.0
-ZONE_SCORE_STRONG = 80
-ZONE_SCORE_MEDIUM = 50
+ZONE_SCORE_STRONG = 80             # score = percentile of train raw quality: 80+ = top 20% of zones
+ZONE_SCORE_MEDIUM = 50             # under 50 = bottom half
+ZONE_SCORE_QUANTILES = 101         # train raw-score quantiles stored with the weights (0..100th)
+ZONE_GATE_VALID_START = "2026-05-01"  # Day 3 gate: fit weights before this, check bands from here to TRAIN_END
+ZONE_GATE_MIN_TOUCHES = 30         # each band needs this many validation touches to count
+ZONE_GATE_MIN_EDGE = 0.10          # 80+ must hold >= 10 points more than <50 ("far more"; random data gave ~8)
 
 # Touch outcome label (Backtest 1): held = moved HOLD_MOVE_ATR away before breaking by BREAK_ATR
 HOLD_MOVE_ATR = 0.5
@@ -91,7 +104,8 @@ REJECTION_WICK_PCT = 0.50
 REJECTION_CLOSE_ATR = 0.1
 FOLLOW_THROUGH_ATR = 0.5
 FOLLOW_THROUGH_BARS = 2
-MAX_ENTRY_DIST_ATR = 0.5
+MAX_ENTRY_DIST_ATR = 0.5          # chasing: alert-bar close vs the planned entry (not the zone edge)
+MAX_ENTRY_FROM_ZONE_ATR = 1.5     # separate cap: planned entry vs the zone edge (rejection candles run ~1 ATR)
 STOP_BUFFER_ATR = 0.1
 FRONT_RUN_ATR = 0.1
 ENTRY_MODE = "confirmed"           # "confirmed" (stage 3) or "early" (stage 2 close)
@@ -201,3 +215,56 @@ LIVE_HISTORY_SESSIONS = 25         # sessions of 5m bars kept in memory (RVOL ne
 POLL_DELAY_S = 2                   # poll this long after each 5m boundary
 SCHEDULE = {"connect": "04:00", "premarket_plan": "08:30", "cutoff_reminder": "15:45",
             "archive": "16:05", "shutdown": "20:00"}
+
+# ---------------------------------------------------------------- simple bounce (separate experimental strategy)
+# A deliberately simpler setup the trader wants tested on its own: trade the first
+# close back out of a 30m S/R zone, stop at the extreme since entry, target the next
+# opposing zone. Does not touch the main engine (regime/A+/multi-stage bounce).
+SIMPLE_STOCKS = ("BE", "MRVL", "DELL", "MU", "NBIS", "SNDK", "COHR", "CRDO")
+SIMPLE_ZONE_TIMEFRAME = "30m"
+SIMPLE_ZONE_CONFIG = ZoneConfig(pivot_period=10, channel_width_pct=4.0, min_strength=2)
+SIMPLE_MAX_BARS_TO_ENTRY = 6        # touch bar + up to this many more before the setup expires unfilled
+SIMPLE_STOP_BUFFER_ATR = 0.1
+SIMPLE_BREAK_ATR = 0.25             # close this far past the zone's far edge cancels the setup
+SIMPLE_MIN_T1_R = 1.5               # skip if the next opposing zone is closer than this
+SIMPLE_ENTRY_WINDOW = ("09:45", "15:30")
+SIMPLE_ZONE_WEIGHTS_PATH = "models/simple_zone_weights.json"
+
+# ---------------------------------------------------------------- zone assistant (alerts only)
+# Same 30m zone config and learned weights as the simple-bounce experiment -- this is the
+# live/replay alert layer on top of that already-scored zone set, never an order-placer.
+WATCHLIST = ("BE", "MRVL", "DELL", "MU", "NBIS", "SNDK", "COHR", "CRDO")
+WATCHLIST_PATH = "models/watchlist.json"   # dashboard edits land here; WATCHLIST above is just the seed default
+
+
+def load_watchlist() -> tuple[str, ...]:
+    p = Path(WATCHLIST_PATH)
+    if p.exists():
+        return tuple(json.loads(p.read_text()))
+    return WATCHLIST
+
+
+def save_watchlist(symbols) -> None:
+    p = Path(WATCHLIST_PATH)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps([s.upper() for s in symbols], indent=2))
+ZONE_ASSISTANT_TIMEFRAME = SIMPLE_ZONE_TIMEFRAME
+ZONE_ASSISTANT_ZONE_CONFIG = SIMPLE_ZONE_CONFIG
+ZONE_ASSISTANT_WEIGHTS_PATH = SIMPLE_ZONE_WEIGHTS_PATH
+ZONE_ASSISTANT_MAX_DIST_ATR = 3.0       # only show/alert zones within this many ATR of price
+ZONE_ASSISTANT_APPROACH_ATR = 0.5       # "approaching" when price is this close to a zone edge
+ZONE_ASSISTANT_BREAK_ATR = 0.25         # alert-stage break: close this far through the zone
+ZONE_ASSISTANT_COOLDOWN_BARS = 12       # 1 hour of 5m bars of quiet after a break, before re-arming
+ZONE_ASSISTANT_MORNING_TIME = "09:15"
+# Day 3 score-band hold rates (from the zone-quality backtest), shown on every approaching alert
+# and in the morning sheet.
+ZONE_HOLD_RATE_BY_BAND = {"80+": 0.85, "50-79": 0.77, "<50": 0.64}
+# "regular" (09:30-16:00) or "extended" (04:00-20:00 -- as far as our data goes; the trader's
+# TradingView 30m chart includes true overnight bars we have no data source for at all).
+# Checked 2026-10-09 10:00 ET against the trader's observed levels: regular matched --
+# MRVL R1 276.50-280.00 (observed 276.8-280), DELL R1 585.00-587.19 (observed ~586), DELL S1
+# 567.47-570.72 (observed 570-572); extended missed all three. BE's observed 271-273 support
+# wasn't captured by either setting -- not chased further, per instruction not to force a match.
+ZONE_SESSION = "regular"
+ZONE_ASSISTANT_APPROACH_MIN_SCORE = 80   # noise control: approaching only for strong zones
+ZONE_ASSISTANT_ALERT_MIN_SCORE = 50      # at-zone / reclaim / break need at least this score

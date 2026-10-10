@@ -10,7 +10,13 @@ Long at support (short at resistance is the mirror):
   fail       close back inside the zone, rejection low lost, or no follow-through
 Entry price: confirmed mode = the rejection candle's high (the "higher high"
 break, worked as a limit after the alert); early mode = the rejection close.
-Entry is refused when that price is already MAX_ENTRY_DIST_ATR past the zone edge.
+Two separate distance checks guard the entry:
+  chasing     the alert bar's own close is already more than MAX_ENTRY_DIST_ATR
+              past the planned entry (price ran away since the signal formed)
+  too far     the planned entry itself is more than MAX_ENTRY_FROM_ZONE_ATR past
+              the zone edge (a rejection candle runs ~1 ATR by construction, so
+              this cap must be wider than MAX_ENTRY_DIST_ATR or confirmed
+              entries would be refused by construction, not by actual chasing)
 """
 from __future__ import annotations
 
@@ -104,9 +110,13 @@ class BounceTracker:
         entry_ok, entry = False, float("nan")
         if self.stage == CONFIRMED or (self.stage == REJECTION and self.bars_since == 0):
             entry = self.rej_high if self.stage == CONFIRMED else self.rej_close
-            entry_ok = entry <= near + config.MAX_ENTRY_DIST_ATR * atr
-            if not entry_ok:
-                reason = "chasing: entry past MAX_ENTRY_DIST_ATR"
+            not_chasing = c <= entry + config.MAX_ENTRY_DIST_ATR * atr
+            not_too_far = entry <= near + config.MAX_ENTRY_FROM_ZONE_ATR * atr
+            entry_ok = not_chasing and not_too_far
+            if not not_chasing:
+                reason = "chasing: price past MAX_ENTRY_DIST_ATR beyond entry"
+            elif not not_too_far:
+                reason = "entry too far from zone (> MAX_ENTRY_FROM_ZONE_ATR)"
             entry = self._unmirror(entry)
         hi, lo = (self.rej_high, self.rej_low) if self._sign == 1 else (-self.rej_low, -self.rej_high)
         return BounceUpdate(self.stage, prev, self.direction, self.zone, hi, lo, entry_ok, entry, reason)
